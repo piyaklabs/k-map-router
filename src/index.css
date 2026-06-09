@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+/* 미니멀 라이트 디자인 토큰 (Tailwind v4 CSS-first).
+   외부 폰트 fetch 없음(system-ui) — LCP < 1s 목표. */
+@theme {
+  --color-naver: #03c75a;
+  --color-naver-deep: #02b050;
+  --color-kakao: #fee500;
+  --color-kakao-deep: #f2d900;
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+}

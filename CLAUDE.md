@@ -85,12 +85,12 @@ URL과 HTML 바디를 합친 텍스트에 아래 순서로 적용. 먼저 매칭
 > Vite 빌드(`dist/client`)를 Worker의 `assets` 바인딩으로 동일 origin 서빙.
 ```
 /                     루트에 Vite 프로젝트 + Worker 통합
-  package.json         scripts: dev:worker / deploy / selftest / typecheck (FE는 Phase 3에서 추가)
-  wrangler.jsonc       main=worker/src/index.ts, compatibility_date, (Phase 3) assets 바인딩
-  tsconfig.json        worker용 (Phase 3에서 FE tsconfig 분리/확장)
-  vite.config.ts       (Phase 3) @tailwindcss/vite + @cloudflare/vite-plugin
-  index.html           (Phase 3) SPA 진입점
-  src/                 (Phase 3) React FE
+  package.json         scripts: dev / build / deploy / typecheck / selftest / verify:deployed
+  wrangler.jsonc       main=worker/src/index.ts + assets 바인딩(directory는 vite 플러그인이 출력 설정에 채움 — 루트에 적지 말 것)
+  tsconfig.json        FE용. Worker는 worker/tsconfig.json (가까운 파일 우선)
+  vite.config.ts       react + @tailwindcss/vite + @cloudflare/vite-plugin
+  index.html           SPA 진입점 (영어 메타/OG, 외부 폰트 없음 — LCP<1s)
+  src/                 React FE (미니멀 라이트: stone 팔레트 + 네이버그린/카카오옐로 토큰)
     App.tsx            원페이지 UI
     components/
       LinkInput.tsx    입력 + Paste-from-Clipboard (iOS 폴백 포함)
@@ -115,9 +115,10 @@ URL과 HTML 바디를 합친 텍스트에 아래 순서로 적용. 먼저 매칭
 
 ## 10. 명령
 ```
-# Worker 로컬:  npx wrangler dev
-# Worker 배포:  npx wrangler deploy
-# FE 로컬:     npm run dev
-# 추출 회귀:    node resolve-test.mjs --selftest
-# 라이브 검증:  node resolve-test.mjs links.txt   (배포 후 Worker 경유로도 1회)
+# 로컬 (FE+Worker 동시, vite 플러그인이 workerd 구동):  npm run dev
+# 배포 (typecheck+빌드 포함):                         npm run deploy
+# 추출 회귀:    npm run selftest        (8/8 기대)
+# 라이브 검증:  npm run verify:deployed (links.txt를 배포된 /api/resolve로 POST)
 ```
+> ⚠️ `wrangler dev` 단독 실행은 assets directory가 루트 설정에 없어 안 됨 —
+> dev/배포 모두 vite 경유(`npm run dev` / `npm run deploy`)가 정석.

@@ -4,7 +4,7 @@
 > **마지막 갱신: 2026-06-10.** 빌드 방식: 플랜 → 사용자 승인 → Phase별 빌드 → 각 Phase 끝 보고.
 
 ## 현재 상태 한 줄
-**Phase 1·2 완료·검증됨(배포 + 실측 게이트 통과). 다음은 Phase 3(프론트엔드).**
+**Phase 1·2·3 전부 완료 — MVP 배포 라이브(https://k-map-router.chakra4267.workers.dev). 남은 것: 실폰 딥링크 테스트(사용자).**
 
 ---
 
@@ -61,11 +61,26 @@
 
 ---
 
-## Phase 3 — 대기 (프론트엔드)
-**생성 예정:** `index.html`, `vite.config.ts`(`@tailwindcss/vite` + `@cloudflare/vite-plugin`), `src/index.css`(`@import "tailwindcss"`),
-`src/App.tsx`, `src/components/{LinkInput,ResultButtons,AdSlot}.tsx`, `src/lib/{deeplink,ua}.ts`.
-**핵심:** 영어 default·모바일 원페이지·storage 금지·`dname` 없으면 생략·UA 분기(네이버 primary/카카오 secondary, 앱스킴→스토어/웹 폴백)·빈 AdSlot.
-**wrangler.jsonc:** `assets: { directory: "./dist/client", binding: "ASSETS", not_found_handling: "single-page-application" }` 추가.
+## Phase 3 — 완료 ✅ (프론트엔드, 미니멀 라이트 UI)
+**디자인(사용자 선택):** 미니멀 라이트 — stone-50 배경 / stone-900 잉크 / 네이버 그린 `#03C75A` primary 솔리드 /
+카카오 옐로 `#FEE500` secondary. system-ui 폰트(외부 fetch 0). Tailwind v4 `@theme` 토큰(`--color-naver` 등).
+
+### 생성 파일
+- `index.html`(영어 메타/OG, 이모지 SVG 파비콘), `vite.config.ts`(react+tailwind+cloudflare 플러그인), `src/main.tsx`, `src/index.css`
+- `src/App.tsx` — 상태 머신 idle→resolving(스켈레톤)→success|error. 에러는 서버 message 표시 + Try another link(입력 리마운트 리셋).
+- `src/components/LinkInput.tsx` — 클라 즉시 검증(비구글 → 링 하이라이트), Paste 버튼(iOS 거부 시 수동 안내 폴백), 붙여넣기 시 자동 제출, 값 있으면 버튼이 "Get directions"로 전환.
+- `src/components/ResultButtons.tsx` — 목적지 카드(이름 없으면 좌표만) + 네이버/카카오 버튼. 모바일: 앱스킴→1.6s 폴백(네이버=스토어, 카카오=웹), 데스크톱: 네이버 웹검색/카카오 link API 새 탭.
+- `src/components/AdSlot.tsx` — 빈 슬롯(높이 예약), `src/lib/{deeplink,ua}.ts` — §6 스펙(appname 필수, dname 없으면 생략, visibilitychange/pagehide 폴백 취소).
+- `wrangler.jsonc` assets 바인딩(**directory 없음** — vite 플러그인이 출력 설정에 채움), `tsconfig.json`(FE)/`worker/tsconfig.json` 분리, scripts 정리(dev/build/deploy/typecheck/selftest/verify:deployed).
+
+### 검증 결과 (2026-06-10)
+- typecheck 클린 · selftest 8/8 · `vite build` 성공(클라 JS 62KB gzip, CSS 3.4KB).
+- 배포 완료(버전 28a1ab78). 라이브 확인: `/` SPA 200, `/api/resolve` 동일 origin 실링크 성공, 깊은 경로 SPA 폴백 200, assets 200.
+- ⚠️ `wrangler dev` 단독은 안 됨(루트 설정에 assets directory 없음) — dev/배포 모두 vite 경유.
+
+### 남은 것 (사용자 실기기 테스트)
+- [ ] 폰에서 https://k-map-router.chakra4267.workers.dev 열고 실링크 붙여넣기 → 네이버/카카오 버튼 탭 (앱스킴 + 미설치 폴백은 실폰에서만 검증 가능)
+- [ ] 카카오 `by=publictransit` 버그 실기기 재확인 / 네이버 웹(데스크톱) 검색 폴백 동작 확인
 
 ---
 

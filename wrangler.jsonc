@@ -1,10 +1,14 @@
 {
   // Cloudflare Worker 설정 (CLAUDE.md §2/§8 — 단일 Worker + static assets).
-  // Phase 3에서 Vite 빌드 산출물을 `assets` 바인딩으로 동일 origin에 서빙한다.
+  // 빌드/배포는 @cloudflare/vite-plugin 경유: `vite build`가 dist/client(assets)와
+  // Worker 번들 + 최종 wrangler 설정을 산출하고, `wrangler deploy`가 그걸 집어 씀.
+  // (그래서 여기 assets에는 directory를 적지 않는다 — 플러그인이 출력 설정에 채움.)
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "k-map-router",
   "main": "worker/src/index.ts",
-  "compatibility_date": "2026-06-09"
-  // Phase 3 추가 예정:
-  // "assets": { "directory": "./dist/client", "binding": "ASSETS", "not_found_handling": "single-page-application" }
+  "compatibility_date": "2026-06-09",
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  }
 }
