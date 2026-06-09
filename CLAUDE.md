@@ -1,0 +1,123 @@
+# CLAUDE.md — K-Map Router
+
+> Claude Code 작업 컨텍스트. 이 파일은 스파이크로 **실측 검증된 사실**만 담는다.
+> 추측·재발명 금지. 의심되면 `docs/PRD.md`와 이 파일을 신뢰할 것.
+
+## 1. 한 줄 정의
+외국인 관광객이 구글맵 공유 링크를 붙여넣으면 네이버/카카오 지도 길찾기로
+포워딩하는 초경량 **stateless** 웹 서비스. (DB 없음, 저장 없음)
+
+## 2. 기술 스택
+| 영역 | 선택 | 비고 |
+|---|---|---|
+| Frontend | React 18 + Vite + Tailwind CSS | mobile-first, 영어 default |
+| Backend | Cloudflare Workers (TypeScript) | **외부 의존성 0** — fetch + regex만 |
+| Hosting | **단일 Worker + static assets 바인딩** (`@cloudflare/vite-plugin`) | FE와 `/api/resolve`가 동일 origin → CORS 부담 ↓. 무료 티어 |
+| Storage | 없음 | stateless |
+
+## 3. 아키텍처 불변 원칙 (검증 완료)
+1. **좌표 해소는 반드시 서버사이드(Worker).** 브라우저에서 구글로 직접 fetch하면
+   CORS로 차단됨. 프론트는 항상 `/api/resolve`를 호출한다.
+2. **Stateless.** 유저/매핑 데이터 저장 안 함.
+3. **English-default.** 모든 UI 텍스트·메타태그 영어.
+
+## 4. ⚠️ 하드원 지식 — 이거 모르고 짜면 똑같이 깨진다
+- **`goo.gl/maps`는 죽은 링크.** 2025-08-25부로 작동 중단. 입력으로 들어오면
+  유효한 좌표를 줄 수 없으니 `dead_shortener`로 거절. 살아있는 입력은
+  `maps.app.goo.gl/*`, `*.google.com/maps/*`, `*.google.co.kr/maps/*` 뿐.
+- **이름(placeName) 추출은 신뢰 불가.** 실측상 공유 링크 다수가 `@위경도` 중심
+  URL로 풀려서 `/place/이름/`도 `og:title`도 없다. **이름은 optional. 좌표가 척추다.**
+- **좌표 포맷이 URL 종류마다 다르다 (아래 5절).** 특히 `/dir/`(길찾기) URL은
+  `!1d{경도}!2d{위도}`로 **위경도 순서가 거꾸로**다. 절대 그냥 (1d,2d)=(lat,lng)로 읽지 말 것.
+- **Workers 데이터센터 IP는 구글이 봇으로 의심**해 consent 페이지를 줄 수 있다.
+  요청에 브라우저 UA + `Accept-Language` 필수. consent로 빠지면 `continue=` 파라미터에서
+  원본 URL을 꺼내 재파싱. **배포 직후 실제 링크로 반드시 재검증** (로컬 한국 IP는 통과해도 Workers는 다를 수 있음).
+- **Korea bbox sanity check:** lat 32.5–39.5, lng 124–132.5 벗어나면 의심 처리.
+
+## 5. 좌표 추출 스펙 — 우선순위 순 (스파이크 검증)
+URL과 HTML 바디를 합친 텍스트에 아래 순서로 적용. 먼저 매칭되는 것 채택.
+
+1. `!3d(위도)!4d(경도)` — **place 핀** (가장 권위 있음)
+2. `!1d(경도)!2d(위도)` — **directions 경유점**. ⚠️순서 반대. 여러 개면 **마지막=목적지**.
+   (출발지=첫 쌍 → 원하면 naver `slat/slng`로 전달)
+3. `@(위도),(경도)` — viewport 중심. *실측상 공유 링크 다수가 여기로 잡힘*
+4. `[?&](q|query|destination|daddr)=(위도),(경도)`
+5. `[?&](ll|center|sll)=(위도),(경도)`
+6. `[null,null,(위도),(경도)]` — 바디 임베디드 배열
+
+> 검증된 레퍼런스 구현: 리포 루트의 `resolve-test.mjs` (오프라인 self-test **8/8**
+> — §5 #2 `!1d!2d` directions + `/dir/`가 `@`보다 우선함까지 커버). Worker의 추출
+> 로직(`worker/src/resolve.ts`)은 이 파일과 **동일한 우선순위**로 짰다.
+> CI에 `node resolve-test.mjs --selftest`를 넣어 회귀 가드로 쓴다.
+
+## 6. 딥링크 스펙 (공식 문서 검증)
+
+### 네이버 — primary
+- 앱 스킴: `nmap://route/public?dlat={lat}&dlng={lng}&dname={enc}&appname={APPNAME}`
+  - `appname` **필수** (없으면 동작 보장 안 됨). 값: 배포 도메인 또는 번들ID.
+  - `dname` **optional → 이름 없으면 생략**. 생략 시 네이버가 실제 주소를 표시.
+  - `slat/slng/sname` 생략 시 현재 위치를 출발지로 사용.
+- 미설치 폴백: Android `market://details?id=com.nhn.android.nmap` /
+  iOS `itms-apps://itunes.apple.com/app/id311867728`
+
+### 카카오 — secondary (대중교통 버그 주의)
+- 앱 스킴: `kakaomap://route?ep={lat},{lng}&by=publictransit`
+  - ⚠️ **`by` 무시 버그 보고됨** — 앱에서 항상 자동차(CAR)로 열릴 수 있음
+    (2025년에도 재보고). 그래서 네이버를 primary로 둔다.
+  - `sp={lat},{lng}` 생략 가능. 이동수단: car|publictransit|foot|bicycle.
+- 웹 폴백: `https://map.kakao.com/link/to/{enc},{lat},{lng}` (구형 link API — 동작 수동확인)
+- 미설치 폴백: iOS `id304608425` / Android `net.daum.android.map`
+
+### 프론트 실행 분기
+- **모바일**: UA로 분기. 앱 스킴 시도 → 일정 시간 내 미전환이면 스토어/웹 폴백.
+- **데스크톱**: 웹 URL로 새 탭. (네이버 웹 길찾기 URL은 비공식·변동 잦음 →
+  안되면 좌표/이름 검색으로 폴백, 데스크톱은 edge case로 취급)
+
+## 7. API 계약 — `POST /api/resolve`
+요청: `{ "url": string }`
+성공: `{ "success": true, "lat": number, "lng": number, "name": string|null, "method": string }`
+실패: `{ "success": false, "reason": "invalid_input"|"dead_shortener"|"resolve_failed"|"no_coords", "message": string }`
+- CORS 헤더 포함. 동일 zone route면 `same-origin` 권장.
+- 입력 검증을 프론트(즉시 하이라이트)와 백(권위) 양쪽에서.
+
+## 8. 디렉토리 구조 — 단일 Worker + static assets
+> 2026 현행 CF 베스트(`@cloudflare/vite-plugin`). Pages+Worker 분리 안 함.
+> Vite 빌드(`dist/client`)를 Worker의 `assets` 바인딩으로 동일 origin 서빙.
+```
+/                     루트에 Vite 프로젝트 + Worker 통합
+  package.json         scripts: dev:worker / deploy / selftest / typecheck (FE는 Phase 3에서 추가)
+  wrangler.jsonc       main=worker/src/index.ts, compatibility_date, (Phase 3) assets 바인딩
+  tsconfig.json        worker용 (Phase 3에서 FE tsconfig 분리/확장)
+  vite.config.ts       (Phase 3) @tailwindcss/vite + @cloudflare/vite-plugin
+  index.html           (Phase 3) SPA 진입점
+  src/                 (Phase 3) React FE
+    App.tsx            원페이지 UI
+    components/
+      LinkInput.tsx    입력 + Paste-from-Clipboard (iOS 폴백 포함)
+      ResultButtons.tsx 네이버/카카오 버튼 + UA 분기 실행
+      AdSlot.tsx       정적 광고 슬롯 (MVP는 빈 컴포넌트)
+    lib/deeplink.ts    딥링크 빌더 (6절 스펙)
+    lib/ua.ts          User-Agent 판별
+    index.css          @import "tailwindcss" (Tailwind v4, CSS-first)
+  worker/
+    src/index.ts       Worker 엔트리 (라우팅 + 입력검증 + CORS, ASSETS 폴백)
+    src/resolve.ts     좌표/이름 추출 (5절 스펙, resolve-test.mjs와 동일 우선순위)
+  docs/PRD.md
+  resolve-test.mjs     검증 스파이크 (회귀 가드, self-test 8/8 — §5 6전략 포함)
+```
+
+## 9. 하지 말 것
+- ❌ 추출 로직에 외부 라이브러리 추가 (fetch+regex로 충분, 검증됨).
+- ❌ `dname=Destination` 같은 리터럴 플레이스홀더 전송 → 이름 없으면 파라미터 생략.
+- ❌ `goo.gl/maps` 입력을 정상 처리 시도.
+- ❌ 브라우저 storage(localStorage 등) 사용 — stateless.
+- ❌ MVP 범위에 reverse geocoding / 즐겨찾기 / 다국어 토글 넣기 → PRD "이후 고도화".
+
+## 10. 명령
+```
+# Worker 로컬:  npx wrangler dev
+# Worker 배포:  npx wrangler deploy
+# FE 로컬:     npm run dev
+# 추출 회귀:    node resolve-test.mjs --selftest
+# 라이브 검증:  node resolve-test.mjs links.txt   (배포 후 Worker 경유로도 1회)
+```
