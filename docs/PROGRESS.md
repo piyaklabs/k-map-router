@@ -4,7 +4,7 @@
 > **마지막 갱신: 2026-06-10.** 빌드 방식: 플랜 → 사용자 승인 → Phase별 빌드 → 각 Phase 끝 보고.
 
 ## 현재 상태 한 줄
-**Phase 1(Worker `/api/resolve`) 완료·검증됨. 다음은 Phase 2(배포 + 실측 게이트) — 사용자 액션 대기 중.**
+**Phase 1·2 완료·검증됨(배포 + 실측 게이트 통과). 다음은 Phase 3(프론트엔드).**
 
 ---
 
@@ -44,17 +44,20 @@
 
 ---
 
-## Phase 2 — 다음 (배포 + 실측 게이트) 🚧
-**이게 리스크의 핵심.** 데이터센터 IP에서 구글이 consent/봇 페이지를 주는지가 진짜 관문. 통과해야 Phase 3 진행.
+## Phase 2 — 완료 ✅ (배포 + 실측 게이트 통과)
+**최대 리스크였던 "데이터센터 IP에서 구글이 consent/봇 페이지를 주는가"가 실측으로 해소됨.**
 
-### 진행 전 필요한 사용자 액션 (Claude가 직접 못 함)
-1. `! npx wrangler login` (인터랙티브 Cloudflare 인증) → `! npx wrangler deploy`
-2. `links.txt`에 실제 구글맵 공유 링크 20~30개 제공 — 맛집/핀드롭/호텔 + **`/dir/` 길찾기 링크** 섞어서.
-   (`links.txt`는 `.gitignore` 처리됨.)
+### 배포
+- `npx wrangler deploy` 완료 → **https://k-map-router.chakra4267.workers.dev**
+- `verify-deployed.mjs` 추가: `links.txt`를 배포 엔드포인트(`/api/resolve`)로 POST해 실 배포 환경 성공률 측정 (구글 직접 fetch가 아니라 Worker 경유 = DC IP 리스크 포함).
 
-### Claude가 할 일
-- **배포된 엔드포인트로 POST하는 검증 스크립트**(현재 `resolve-test.mjs`는 구글에 직접 fetch → 배포 리스크 측정 못 함. `/api/resolve`로 POST하는 변형 필요).
-- consent/봇 페이지 발생 여부 + 성공률 측정. 판단 기준: 90%+ 진행 / 70~90% 이름검색 폴백 필수 / <70% 설계 재검토.
+### 실측 결과 (2026-06-10, `dir/links.txt` 4개 `maps.app.goo.gl` 링크)
+- **성공률 4/4 (100%)**, consent/봇 페이지 **0건** → DC IP에서 구글 fetch 정상.
+- 전부 `/dir/` 링크라 전략은 전부 `dir!1d!2d`(역순 로직 배포 환경서 정상). 좌표 전부 서울 bbox 내.
+- 이름은 전부 null(설계상 정상, 좌표가 척추).
+
+### ⚠️ 남은 검증 갭 (Phase 3와 병행 또는 차후)
+- 표본 작음(4개)·전부 `/dir/` 한 종류. **place-핀(`!3d!4d`)·`@`뷰포트·`query=` 짧은 링크**는 배포 경유로 아직 미검증(저위험·풀URL 스모크는 통과). 링크 더 모이면 `node verify-deployed.mjs <file>`로 재측정.
 
 ---
 
