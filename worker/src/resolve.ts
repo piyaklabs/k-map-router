@@ -72,17 +72,28 @@ export function extractCoords(text: string): Coords | null {
   return null;
 }
 
+function geocodeEntries(raw: string): string[] {
+  try {
+    return decodeURIComponent(raw).split(";").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** geocode= 마지막 엔트리(=목적지) 디코딩. */
+function decodeGeocodeParam(raw: string): { lat: number; lng: number } | null {
+  const entries = geocodeEntries(raw);
+  return entries.length ? decodeGeocodeEntry(entries[entries.length - 1]) : null;
+}
+
 /**
  * geocode= 엔트리 디코딩 (외부 의존성 0 — atob는 Workers/Node 내장).
  * 각 엔트리는 base64url protobuf: 0x15(field2, fixed32 LE)=lat×1e6, 0x1D(field3)=lng×1e6.
  * 실측 검증: "FWFrPQIdEYSRBy…" → 37.579617, 126.977041 (경복궁).
  */
-function decodeGeocodeParam(raw: string): { lat: number; lng: number } | null {
+function decodeGeocodeEntry(entry: string): { lat: number; lng: number } | null {
   try {
-    const entries = decodeURIComponent(raw).split(";").filter(Boolean);
-    const last = entries[entries.length - 1]; // 마지막=목적지
-    if (!last) return null;
-    const bin = atob(last.replace(/-/g, "+").replace(/_/g, "/"));
+    const bin = atob(entry.replace(/-/g, "+").replace(/_/g, "/"));
     let lat: number | null = null;
     let lng: number | null = null;
     for (let i = 0; i + 4 < bin.length && (lat === null || lng === null); i++) {
@@ -101,6 +112,25 @@ function decodeGeocodeParam(raw: string): { lat: number; lng: number } | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * 출발지 추출 — 길찾기(A→B) 링크일 때만 존재. 좌표 쌍이 2개 이상이면 첫 쌍=출발지.
+ * (쌍이 1개뿐이면 그게 목적지이므로 출발지 없음 → 앱이 현재 위치 사용.)
+ */
+export function extractOrigin(text: string): { lat: number; lng: number } | null {
+  const dirPairs = [...text.matchAll(/!1d(-?\d{1,3}\.\d{3,})!2d(-?\d{1,3}\.\d{3,})/g)];
+  if (dirPairs.length >= 2) {
+    const lat = parseFloat(dirPairs[0][2]); // ⚠️ !2d=lat, !1d=lng (역순)
+    const lng = parseFloat(dirPairs[0][1]);
+    if (!Number.isNaN(lat) && !Number.isNaN(lng)) return { lat, lng };
+  }
+  const m = text.match(/[?&]geocode=([^&\s"']+)/i);
+  if (m) {
+    const entries = geocodeEntries(m[1]);
+    if (entries.length >= 2) return decodeGeocodeEntry(entries[0]);
+  }
+  return null;
 }
 
 // 좌표 문자열("37.5,127.0")은 이름이 아님 → 이름 후보에서 제외
@@ -147,8 +177,38 @@ export function extractName(finalUrl: string, body: string): string | null {
   return null;
 }
 
+/** 출발지 이름 — /dir/ 첫 세그먼트(세그먼트 2개 이상일 때) 또는 saddr=. */
+export function extractOriginName(finalUrl: string): string | null {
+  const dir = finalUrl.match(/\/maps\/dir\/([^?#]+)/);
+  if (dir) {
+    const segs = dir[1]
+      .split("/")
+      .filter((s) => s && !s.startsWith("@") && !s.startsWith("data="));
+    if (segs.length >= 2) {
+      const n = decodeNameSegment(segs[0]);
+      if (n) return n;
+    }
+  }
+  const saddr = finalUrl.match(/[?&]saddr=([^&]+)/i);
+  if (saddr) return decodeNameSegment(saddr[1]);
+  return null;
+}
+
+export interface OriginOut {
+  lat: number;
+  lng: number;
+  name: string | null;
+}
+
 export type ResolveResult =
-  | { success: true; lat: number; lng: number; name: string | null; method: string }
+  | {
+      success: true;
+      lat: number;
+      lng: number;
+      name: string | null;
+      method: string;
+      origin: OriginOut | null;
+    }
   | { success: false; reason: "resolve_failed" | "no_coords"; message: string };
 
 /**
@@ -202,7 +262,26 @@ export async function resolve(url: string): Promise<ResolveResult> {
   }
 
   const name = extractName(nameSource, body);
-  return { success: true, lat: coords.lat, lng: coords.lng, name, method: coords.method };
+
+  // 출발지(A→B 링크): 한국 밖이거나 목적지와 같으면 버림 → 앱이 현재 위치 사용
+  let origin: OriginOut | null = null;
+  const o = extractOrigin(haystack);
+  if (
+    o &&
+    inKorea(o.lat, o.lng) &&
+    (Math.abs(o.lat - coords.lat) > 1e-6 || Math.abs(o.lng - coords.lng) > 1e-6)
+  ) {
+    origin = { ...o, name: extractOriginName(nameSource) };
+  }
+
+  return {
+    success: true,
+    lat: coords.lat,
+    lng: coords.lng,
+    name,
+    method: coords.method,
+    origin,
+  };
 }
 
 function safeDecode(s: string): string {

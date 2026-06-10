@@ -2,6 +2,9 @@
  * 네이버/카카오 딥링크 빌더 (CLAUDE.md §6 — 공식 문서 검증 스펙).
  * 네이버 = primary (대중교통 정확·영어 우수), 카카오 = secondary
  * (`by=publictransit`가 자동차로 열리는 버그 보고됨).
+ *
+ * 출발지(origin): A→B 길찾기 공유 링크에서만 존재. 없으면 파라미터 생략
+ * → 앱이 현재 위치를 출발지로 사용.
  */
 import type { Platform } from "./ua";
 
@@ -17,28 +20,36 @@ const APPNAME = "k-map-router.chakra4267.workers.dev";
 const NAVER_ANDROID_PKG = "com.nhn.android.nmap";
 const KAKAO_ANDROID_PKG = "net.daum.android.map";
 
-function naverQuery({ lat, lng, name }: Destination): string {
+type Origin = Destination | null;
+
+function naverQuery(dest: Destination, origin: Origin): string {
+  let q = "";
+  if (origin) {
+    q += `slat=${origin.lat}&slng=${origin.lng}`;
+    if (origin.name) q += `&sname=${encodeURIComponent(origin.name)}`;
+    q += "&";
+  }
   // dname은 공식 스펙상 optional — 생략 시 네이버가 실제 주소 표시 (리터럴 placeholder 금지)
-  let q = `dlat=${lat}&dlng=${lng}`;
-  if (name) q += `&dname=${encodeURIComponent(name)}`;
+  q += `dlat=${dest.lat}&dlng=${dest.lng}`;
+  if (dest.name) q += `&dname=${encodeURIComponent(dest.name)}`;
   return `${q}&appname=${encodeURIComponent(APPNAME)}`;
 }
 
 /** iOS용 nmap 스킴. (Android는 intent:// 사용 — 파라미터 전달 보장 + 스토어 폴백 내장) */
-export function naverAppUrl(dest: Destination): string {
-  return `nmap://route/public?${naverQuery(dest)}`;
+export function naverAppUrl(dest: Destination, origin: Origin): string {
+  return `nmap://route/public?${naverQuery(dest, origin)}`;
 }
 
 /**
  * Android Chrome 계열은 커스텀 스킴보다 intent://가 정석:
  * 파라미터가 그대로 앱 인텐트로 전달되고, 미설치면 S.browser_fallback_url로 빠진다.
  */
-export function naverAndroidIntentUrl(dest: Destination): string {
+export function naverAndroidIntentUrl(dest: Destination, origin: Origin): string {
   const fallback = encodeURIComponent(
     `https://play.google.com/store/apps/details?id=${NAVER_ANDROID_PKG}`,
   );
   return (
-    `intent://route/public?${naverQuery(dest)}` +
+    `intent://route/public?${naverQuery(dest, origin)}` +
     `#Intent;scheme=nmap;package=${NAVER_ANDROID_PKG};S.browser_fallback_url=${fallback};end`
   );
 }
@@ -46,27 +57,35 @@ export function naverAndroidIntentUrl(dest: Destination): string {
 export const NAVER_IOS_STORE = "itms-apps://itunes.apple.com/app/id311867728";
 export const NAVER_ANDROID_STORE_WEB = `https://play.google.com/store/apps/details?id=${NAVER_ANDROID_PKG}`;
 
+/** Web Mercator(EPSG:3857) 경로 세그먼트 — 네이버 웹 /p/directions 좌표계. */
+function naverWebSegment(p: Destination): string {
+  const x = (p.lng * 20037508.34) / 180;
+  const y =
+    (Math.log(Math.tan(((90 + p.lat) * Math.PI) / 360)) * 20037508.34) /
+    Math.PI;
+  return `${x.toFixed(7)},${y.toFixed(7)},${encodeURIComponent(webLabel(p))}`;
+}
+
 /**
- * 데스크톱 — 네이버 웹 길찾기 (비공식 /p/directions, 좌표는 Web Mercator EPSG:3857).
+ * 데스크톱 — 네이버 웹 길찾기 (비공식 /p/directions).
  * 형식: /p/directions/{출발|-}/{x},{y},{이름}/{경유|-}/transit
  */
-export function naverWebUrl(dest: Destination): string {
-  const { lat, lng } = dest;
-  const x = (lng * 20037508.34) / 180;
-  const y =
-    (Math.log(Math.tan(((90 + lat) * Math.PI) / 360)) * 20037508.34) / Math.PI;
-  return `https://map.naver.com/p/directions/-/${x.toFixed(7)},${y.toFixed(7)},${encodeURIComponent(webLabel(dest))}/-/transit`;
+export function naverWebUrl(dest: Destination, origin: Origin): string {
+  const start = origin ? naverWebSegment(origin) : "-";
+  return `https://map.naver.com/p/directions/${start}/${naverWebSegment(dest)}/-/transit`;
 }
 
 /** iOS용 kakaomap 스킴. sp 생략 시 현재 위치 출발. by 무시 버그 주의(보조로만). */
-export function kakaoAppUrl({ lat, lng }: Destination): string {
-  return `kakaomap://route?ep=${lat},${lng}&by=publictransit`;
+export function kakaoAppUrl(dest: Destination, origin: Origin): string {
+  const sp = origin ? `sp=${origin.lat},${origin.lng}&` : "";
+  return `kakaomap://route?${sp}ep=${dest.lat},${dest.lng}&by=publictransit`;
 }
 
-export function kakaoAndroidIntentUrl(dest: Destination): string {
+export function kakaoAndroidIntentUrl(dest: Destination, origin: Origin): string {
+  const sp = origin ? `sp=${origin.lat},${origin.lng}&` : "";
   const fallback = encodeURIComponent(kakaoWebUrl(dest));
   return (
-    `intent://route?ep=${dest.lat},${dest.lng}&by=publictransit` +
+    `intent://route?${sp}ep=${dest.lat},${dest.lng}&by=publictransit` +
     `#Intent;scheme=kakaomap;package=${KAKAO_ANDROID_PKG};S.browser_fallback_url=${fallback};end`
   );
 }
@@ -83,7 +102,7 @@ function webLabel({ lat, lng, name }: Destination): string {
     .trim();
 }
 
-/** 카카오 웹 폴백 (구형 link API). */
+/** 카카오 웹 폴백 (구형 link API — 출발지 전달은 미지원, 목적지만). */
 export function kakaoWebUrl(dest: Destination): string {
   return `https://map.kakao.com/link/to/${encodeURIComponent(webLabel(dest))},${dest.lat},${dest.lng}`;
 }
@@ -117,22 +136,30 @@ export function openWithFallback(
 }
 
 /** 플랫폼 분기까지 묶은 실행기 — 버튼 핸들러에서 이것만 호출. */
-export function openNaver(dest: Destination, platform: Platform): void {
+export function openNaver(
+  dest: Destination,
+  origin: Origin,
+  platform: Platform,
+): void {
   if (platform === "desktop") {
-    window.open(naverWebUrl(dest), "_blank", "noopener");
+    window.open(naverWebUrl(dest, origin), "_blank", "noopener");
   } else if (platform === "android") {
-    openWithFallback(naverAndroidIntentUrl(dest), NAVER_ANDROID_STORE_WEB);
+    openWithFallback(naverAndroidIntentUrl(dest, origin), NAVER_ANDROID_STORE_WEB);
   } else {
-    openWithFallback(naverAppUrl(dest), NAVER_IOS_STORE);
+    openWithFallback(naverAppUrl(dest, origin), NAVER_IOS_STORE);
   }
 }
 
-export function openKakao(dest: Destination, platform: Platform): void {
+export function openKakao(
+  dest: Destination,
+  origin: Origin,
+  platform: Platform,
+): void {
   if (platform === "desktop") {
     window.open(kakaoWebUrl(dest), "_blank", "noopener");
   } else if (platform === "android") {
-    openWithFallback(kakaoAndroidIntentUrl(dest), kakaoWebUrl(dest));
+    openWithFallback(kakaoAndroidIntentUrl(dest, origin), kakaoWebUrl(dest));
   } else {
-    openWithFallback(kakaoAppUrl(dest), kakaoWebUrl(dest));
+    openWithFallback(kakaoAppUrl(dest, origin), kakaoWebUrl(dest));
   }
 }

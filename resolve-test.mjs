@@ -85,16 +85,27 @@ function extractCoords(text) {
   return null;
 }
 
+function geocodeEntries(raw) {
+  try {
+    return decodeURIComponent(raw).split(";").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** geocode= 마지막 엔트리(=목적지) 디코딩. */
+function decodeGeocodeParam(raw) {
+  const entries = geocodeEntries(raw);
+  return entries.length ? decodeGeocodeEntry(entries[entries.length - 1]) : null;
+}
+
 /**
  * geocode= 엔트리 디코딩 (Worker resolve.ts와 동일 로직 유지).
  * base64url protobuf: 0x15(field2, fixed32 LE)=lat×1e6, 0x1D(field3)=lng×1e6.
  */
-function decodeGeocodeParam(raw) {
+function decodeGeocodeEntry(entry) {
   try {
-    const entries = decodeURIComponent(raw).split(";").filter(Boolean);
-    const last = entries[entries.length - 1]; // 마지막=목적지
-    if (!last) return null;
-    const bin = atob(last.replace(/-/g, "+").replace(/_/g, "/"));
+    const bin = atob(entry.replace(/-/g, "+").replace(/_/g, "/"));
     let lat = null, lng = null;
     for (let i = 0; i + 4 < bin.length && (lat === null || lng === null); i++) {
       const tag = bin.charCodeAt(i);
@@ -112,6 +123,24 @@ function decodeGeocodeParam(raw) {
   } catch {
     return null;
   }
+}
+
+/**
+ * 출발지 추출 — 길찾기(A→B) 링크일 때만. 좌표 쌍 2개 이상이면 첫 쌍=출발지 (Worker와 동일).
+ */
+function extractOrigin(text) {
+  const dirPairs = [...text.matchAll(/!1d(-?\d{1,3}\.\d{3,})!2d(-?\d{1,3}\.\d{3,})/g)];
+  if (dirPairs.length >= 2) {
+    const lat = parseFloat(dirPairs[0][2]); // ⚠️ !2d=lat, !1d=lng (역순)
+    const lng = parseFloat(dirPairs[0][1]);
+    if (!Number.isNaN(lat) && !Number.isNaN(lng)) return { lat, lng };
+  }
+  const m = text.match(/[?&]geocode=([^&\s"']+)/i);
+  if (m) {
+    const entries = geocodeEntries(m[1]);
+    if (entries.length >= 2) return decodeGeocodeEntry(entries[0]);
+  }
+  return null;
 }
 
 // 좌표 문자열("37.5,127.0")은 이름이 아님 → 이름 후보에서 제외
@@ -214,26 +243,32 @@ function selfTest() {
     { t: "https://www.google.com/maps/search/?api=1&query=37.5665,126.9780", exp: [37.5665, 126.978] },
     { t: "https://maps.google.com/?ll=37.5172,127.0473&z=16", exp: [37.5172, 127.0473] },
     { t: 'junk[null,null,37.5145,127.1059]morejunk', exp: [37.5145, 127.1059] },
-    // directions(/dir/): !1d{lng}!2d{lat} 역순. 여러 쌍이면 마지막=목적지.
-    { t: "https://www.google.com/maps/dir/?...!4m2!1d126.9706!2d37.5547!1m0!1d126.9770!2d37.5796", exp: [37.5796, 126.977] },
+    // directions(/dir/): !1d{lng}!2d{lat} 역순. 여러 쌍이면 마지막=목적지, 첫 쌍=출발지.
+    { t: "https://www.google.com/maps/dir/?...!4m2!1d126.9706!2d37.5547!1m0!1d126.9770!2d37.5796", exp: [37.5796, 126.977], expOrigin: [37.5547, 126.9706] },
     // directions가 @뷰포트보다 우선해야 함(§5 #2 > #3): 둘 다 있으면 목적지를 잡아야 함.
     { t: "https://www.google.com/maps/dir/A/B/@37.5000,127.0000,12z/data=!4m2!1d126.9770!2d37.5796", exp: [37.5796, 126.977] },
     { t: "https://www.google.com/maps/place/Some+Cafe/data=just-an-address-no-coords", exp: null },
     // 모바일 길찾기 공유(g_st=ic): 좌표가 geocode= base64 protobuf에만 있음.
     // 실링크(경복궁) 실측값. 두 엔트리(출발;도착) 중 마지막=목적지.
-    { t: "https://www.google.com/maps?geocode=FWoPPQId4W-RByl1kF5PmKN8NTEjt2zW3vqoGw%3D%3D;FWFrPQIdEYSRBymh3u1Kx6J8NTH2FccsU0Ywiw%3D%3D&daddr=Gyeongbokgung+Palace,+161+Sajik-ro&saddr=Seoul+Station&dirflg=r", exp: [37.579617, 126.977041] },
+    { t: "https://www.google.com/maps?geocode=FWoPPQId4W-RByl1kF5PmKN8NTEjt2zW3vqoGw%3D%3D;FWFrPQIdEYSRBymh3u1Kx6J8NTH2FccsU0Ywiw%3D%3D&daddr=Gyeongbokgung+Palace,+161+Sajik-ro&saddr=Seoul+Station&dirflg=r", exp: [37.579617, 126.977041], expOrigin: [37.556074, 126.971873] },
   ];
   let pass = 0;
   console.log("=== OFFLINE SELF-TEST (추출 로직) ===");
   for (const c of cases) {
     const r = extractCoords(c.t);
-    const ok = c.exp === null
+    let ok = c.exp === null
       ? r === null
       : r && Math.abs(r.lat - c.exp[0]) < 1e-6 && Math.abs(r.lng - c.exp[1]) < 1e-6;
+    // A→B 링크면 출발지(첫 쌍/첫 geocode 엔트리)도 검증
+    if (ok && c.expOrigin) {
+      const o = extractOrigin(c.t);
+      ok = o && Math.abs(o.lat - c.expOrigin[0]) < 1e-6 && Math.abs(o.lng - c.expOrigin[1]) < 1e-6;
+      if (!ok) console.log(`  └ origin FAIL: ${o ? `${o.lat},${o.lng}` : "null"} (expected ${c.expOrigin})`);
+    }
     if (ok) pass++;
     console.log(
       `${ok ? "PASS" : "FAIL"}  [${r ? r.method : "none"}]  ` +
-      `${r ? `${r.lat},${r.lng}` : "null"}  <-  ${c.t.slice(0, 60)}`,
+      `${r ? `${r.lat},${r.lng}` : "null"}${c.expOrigin ? " (+origin)" : ""}  <-  ${c.t.slice(0, 60)}`,
     );
   }
   console.log(`\n${pass}/${cases.length} passed\n`);

@@ -76,13 +76,17 @@ for (const link of links) {
     console.log(`❌ NET-ERR  ${link}\n     ${r.fetchError}\n`);
   } else if (r.data && r.data.success) {
     success++;
-    const { lat, lng, name, method } = r.data;
+    const { lat, lng, name, method, origin } = r.data;
     methodCount[method] = (methodCount[method] || 0) + 1;
     const flag = inKorea(lat, lng) ? "" : "  ⚠️한국영역밖";
     if (flag) outOfKorea++;
     console.log(`✅ OK     ${link}`);
     console.log(`     coord: ${lat}, ${lng}  [${method}]${flag}`);
-    console.log(`     name : ${name || "(없음)"}\n`);
+    console.log(`     name : ${name || "(없음)"}`);
+    if (origin) {
+      console.log(`     from : ${origin.name || "(이름없음)"} @ ${origin.lat}, ${origin.lng}`);
+    }
+    console.log("");
   } else {
     fail++;
     const reason = (r.data && r.data.reason) || `http_${r.status}`;

@@ -7,7 +7,7 @@ import type { Destination } from "./lib/deeplink";
 type State =
   | { phase: "idle" }
   | { phase: "resolving" }
-  | { phase: "success"; dest: Destination }
+  | { phase: "success"; dest: Destination; origin: Destination | null }
   | { phase: "error"; message: string };
 
 const GENERIC_ERROR =
@@ -31,6 +31,7 @@ export default function App() {
         lat?: number;
         lng?: number;
         name?: string | null;
+        origin?: Destination | null;
         message?: string;
       } = await res.json();
 
@@ -38,6 +39,7 @@ export default function App() {
         setState({
           phase: "success",
           dest: { lat: data.lat, lng: data.lng, name: data.name ?? null },
+          origin: data.origin ?? null,
         });
       } else {
         setState({ phase: "error", message: data.message || GENERIC_ERROR });
@@ -69,7 +71,15 @@ export default function App() {
 
         {state.phase === "success" ? (
           <div className="flex flex-col gap-4">
-            <ResultButtons dest={state.dest} />
+            <ResultButtons
+              dest={state.dest}
+              origin={state.origin}
+              onRemoveOrigin={() =>
+                setState((s) =>
+                  s.phase === "success" ? { ...s, origin: null } : s,
+                )
+              }
+            />
             <button
               type="button"
               onClick={reset}

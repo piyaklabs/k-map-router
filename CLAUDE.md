@@ -88,7 +88,11 @@ URL과 HTML 바디를 합친 텍스트에 아래 순서로 적용. 먼저 매칭
 
 ## 7. API 계약 — `POST /api/resolve`
 요청: `{ "url": string }`
-성공: `{ "success": true, "lat": number, "lng": number, "name": string|null, "method": string }`
+성공: `{ "success": true, "lat": number, "lng": number, "name": string|null, "method": string,
+        "origin": { "lat", "lng", "name": string|null } | null }`
+- `origin`: A→B 길찾기 공유 링크일 때만 (좌표 쌍 ≥2 → 첫 쌍/첫 geocode 엔트리 = 출발지,
+  이름은 `/dir/` 첫 세그먼트 또는 `saddr=`). 한국 밖이거나 목적지와 동일하면 null.
+  null이면 프론트가 출발지 파라미터 생략 → 앱이 현재 위치 사용.
 실패: `{ "success": false, "reason": "invalid_input"|"dead_shortener"|"resolve_failed"|"no_coords", "message": string }`
 - CORS 헤더 포함. 동일 zone route면 `same-origin` 권장.
 - 입력 검증을 프론트(즉시 하이라이트)와 백(권위) 양쪽에서.
