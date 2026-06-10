@@ -45,23 +45,62 @@ export function extractCoords(text: string): Coords | null {
     if (r) return r;
   }
 
-  // 3) viewport 중심: /@{lat},{lng},17z (실측상 공유 링크 다수가 여기로 잡힘)
+  // 3) 모바일 길찾기 공유(g_st=…): ?geocode={b64};{b64}&daddr=이름 — 좌표가 URL 파라미터에
+  //    없고 geocode= base64 protobuf에만 있음(실측 2026-06). 여러 엔트리면 마지막=목적지.
+  m = text.match(/[?&]geocode=([^&\s"']+)/i);
+  if (m) {
+    const r = decodeGeocodeParam(m[1]);
+    if (r) return { ...r, method: "geocode=" };
+  }
+
+  // 4) viewport 중심: /@{lat},{lng},17z (실측상 공유 링크 다수가 여기로 잡힘)
   m = text.match(/@(-?\d{1,3}\.\d{3,}),(-?\d{1,3}\.\d{3,})/);
   if (m) { const r = mk(m[1], m[2], "@latlng"); if (r) return r; }
 
-  // 4) Maps URLs API: ?query={lat},{lng} / ?q= / &destination= / &daddr=
+  // 5) Maps URLs API: ?query={lat},{lng} / ?q= / &destination= / &daddr=
   m = text.match(/[?&](?:q|query|destination|daddr)=(-?\d{1,3}\.\d{3,})(?:,|%2C)(-?\d{1,3}\.\d{3,})/i);
   if (m) { const r = mk(m[1], m[2], "query="); if (r) return r; }
 
-  // 5) viewport/center 파라미터: ll= / center= / sll=
+  // 6) viewport/center 파라미터: ll= / center= / sll=
   m = text.match(/[?&](?:ll|center|sll)=(-?\d{1,3}\.\d{3,})(?:,|%2C)(-?\d{1,3}\.\d{3,})/i);
   if (m) { const r = mk(m[1], m[2], "ll="); if (r) return r; }
 
-  // 6) 바디 임베디드 배열형: [null,null,{lat},{lng}]
+  // 7) 바디 임베디드 배열형: [null,null,{lat},{lng}]
   m = text.match(/\[null,null,(-?\d{1,3}\.\d{4,}),(-?\d{1,3}\.\d{4,})\]/);
   if (m) { const r = mk(m[1], m[2], "array"); if (r) return r; }
 
   return null;
+}
+
+/**
+ * geocode= 엔트리 디코딩 (외부 의존성 0 — atob는 Workers/Node 내장).
+ * 각 엔트리는 base64url protobuf: 0x15(field2, fixed32 LE)=lat×1e6, 0x1D(field3)=lng×1e6.
+ * 실측 검증: "FWFrPQIdEYSRBy…" → 37.579617, 126.977041 (경복궁).
+ */
+function decodeGeocodeParam(raw: string): { lat: number; lng: number } | null {
+  try {
+    const entries = decodeURIComponent(raw).split(";").filter(Boolean);
+    const last = entries[entries.length - 1]; // 마지막=목적지
+    if (!last) return null;
+    const bin = atob(last.replace(/-/g, "+").replace(/_/g, "/"));
+    let lat: number | null = null;
+    let lng: number | null = null;
+    for (let i = 0; i + 4 < bin.length && (lat === null || lng === null); i++) {
+      const tag = bin.charCodeAt(i);
+      if ((tag !== 0x15 || lat !== null) && (tag !== 0x1d || lng !== null)) continue;
+      let v = 0;
+      for (let j = 3; j >= 0; j--) v = v * 256 + bin.charCodeAt(i + 1 + j);
+      if (v > 0x7fffffff) v -= 0x100000000;
+      if (tag === 0x15) lat = v / 1e6;
+      else lng = v / 1e6;
+      i += 4;
+    }
+    if (lat === null || lng === null) return null;
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+    return { lat, lng };
+  } catch {
+    return null;
+  }
 }
 
 /** 장소명 추출 — best-effort, optional (CLAUDE.md §4: 이름은 신뢰 불가). */
@@ -70,6 +109,18 @@ export function extractName(finalUrl: string, body: string): string | null {
   if (place) {
     try {
       return decodeURIComponent(place[1].replace(/\+/g, " "));
+    } catch {
+      /* fallthrough */
+    }
+  }
+  // 길찾기 공유 링크: 목적지 이름이 daddr= 에 있음 (좌표형이면 이름 아님 → 제외)
+  const daddr = finalUrl.match(/[?&]daddr=([^&]+)/i);
+  if (daddr) {
+    try {
+      const decoded = decodeURIComponent(daddr[1].replace(/\+/g, " ")).trim();
+      if (decoded && !/^-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+$/.test(decoded)) {
+        return decoded;
+      }
     } catch {
       /* fallthrough */
     }

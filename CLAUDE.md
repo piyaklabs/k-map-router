@@ -33,6 +33,8 @@
   요청에 브라우저 UA + `Accept-Language` 필수. consent로 빠지면 `continue=` 파라미터에서
   원본 URL을 꺼내 재파싱. **배포 직후 실제 링크로 반드시 재검증** (로컬 한국 IP는 통과해도 Workers는 다를 수 있음).
 - **Korea bbox sanity check:** lat 32.5–39.5, lng 124–132.5 벗어나면 의심 처리.
+- **모바일 앱 "길찾기 → 공유" 링크(`g_st=` 파라미터)는 별종.** `?daddr={이름}&saddr={이름}&geocode={b64};{b64}`
+  로 풀려 좌표가 평문 어디에도 없다 → §5 #3 geocode 디코딩 필수. 이름은 `daddr=`에서 추출 가능.
 
 ## 5. 좌표 추출 스펙 — 우선순위 순 (스파이크 검증)
 URL과 HTML 바디를 합친 텍스트에 아래 순서로 적용. 먼저 매칭되는 것 채택.
@@ -40,13 +42,16 @@ URL과 HTML 바디를 합친 텍스트에 아래 순서로 적용. 먼저 매칭
 1. `!3d(위도)!4d(경도)` — **place 핀** (가장 권위 있음)
 2. `!1d(경도)!2d(위도)` — **directions 경유점**. ⚠️순서 반대. 여러 개면 **마지막=목적지**.
    (출발지=첫 쌍 → 원하면 naver `slat/slng`로 전달)
-3. `@(위도),(경도)` — viewport 중심. *실측상 공유 링크 다수가 여기로 잡힘*
-4. `[?&](q|query|destination|daddr)=(위도),(경도)`
-5. `[?&](ll|center|sll)=(위도),(경도)`
-6. `[null,null,(위도),(경도)]` — 바디 임베디드 배열
+3. `[?&]geocode=` — **모바일 앱 길찾기 공유**(`g_st=` 붙음). ⚠️좌표가 URL 어디에도
+   평문으로 없고 base64url protobuf에만 있음: 엔트리당 `0x15`(fixed32 LE)=lat×1e6,
+   `0x1D`=lng×1e6. `;` 구분 다중 엔트리면 **마지막=목적지**. 이름은 `daddr=`에 있음(실측 2026-06).
+4. `@(위도),(경도)` — viewport 중심. *실측상 공유 링크 다수가 여기로 잡힘*
+5. `[?&](q|query|destination|daddr)=(위도),(경도)`
+6. `[?&](ll|center|sll)=(위도),(경도)`
+7. `[null,null,(위도),(경도)]` — 바디 임베디드 배열
 
-> 검증된 레퍼런스 구현: 리포 루트의 `resolve-test.mjs` (오프라인 self-test **8/8**
-> — §5 #2 `!1d!2d` directions + `/dir/`가 `@`보다 우선함까지 커버). Worker의 추출
+> 검증된 레퍼런스 구현: 리포 루트의 `resolve-test.mjs` (오프라인 self-test **9/9**
+> — `/dir/`가 `@`보다 우선 + geocode= 디코딩 실측 케이스 포함). Worker의 추출
 > 로직(`worker/src/resolve.ts`)은 이 파일과 **동일한 우선순위**로 짰다.
 > CI에 `node resolve-test.mjs --selftest`를 넣어 회귀 가드로 쓴다.
 
@@ -66,12 +71,20 @@ URL과 HTML 바디를 합친 텍스트에 아래 순서로 적용. 먼저 매칭
     (2025년에도 재보고). 그래서 네이버를 primary로 둔다.
   - `sp={lat},{lng}` 생략 가능. 이동수단: car|publictransit|foot|bicycle.
 - 웹 폴백: `https://map.kakao.com/link/to/{enc},{lat},{lng}` (구형 link API — 동작 수동확인)
+  - ⚠️ **이름 세그먼트에 콤마(`,`/`%2C`) 금지** — 들어가면 파싱 깨져 목적지 없는
+    `?target=car`로 폴백(실측 2026-06). 이름 없을 때 `"lat,lng"`를 이름으로 넣으면 안 됨
+    → 콤마를 공백 치환한 라벨 사용.
 - 미설치 폴백: iOS `id304608425` / Android `net.daum.android.map`
 
 ### 프론트 실행 분기
-- **모바일**: UA로 분기. 앱 스킴 시도 → 일정 시간 내 미전환이면 스토어/웹 폴백.
-- **데스크톱**: 웹 URL로 새 탭. (네이버 웹 길찾기 URL은 비공식·변동 잦음 →
-  안되면 좌표/이름 검색으로 폴백, 데스크톱은 edge case로 취급)
+- **iOS**: 커스텀 스킴(`nmap://`, `kakaomap://`) → 타이머 폴백. ⚠️타이머 1.6s는 너무 짧음
+  — "앱에서 열기" 확인 대화상자 중에 폴백이 끼어들어 엉뚱한 화면이 열림(실측). **2.5s** 사용,
+  `visibilitychange`/`pagehide`로 전환 감지 시 취소.
+- **Android**: 커스텀 스킴 대신 **`intent://…#Intent;scheme=…;package=…;S.browser_fallback_url=…;end`**
+  — 파라미터 전달 보장 + 미설치 시 스토어 폴백 내장(Chrome 계열 정석).
+- **데스크톱**: 새 탭. 네이버는 `map.naver.com/p/directions/-/{x},{y},{이름}/-/transit`
+  (비공식, 좌표는 **Web Mercator EPSG:3857** 변환 필요). 안되면 좌표/이름 검색 폴백
+  (`/p/search/`는 핀만 찍힘 — 길찾기 아님, 실측). 데스크톱은 edge case로 취급.
 
 ## 7. API 계약 — `POST /api/resolve`
 요청: `{ "url": string }`

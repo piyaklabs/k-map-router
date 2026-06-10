@@ -78,9 +78,19 @@
 - 배포 완료(버전 28a1ab78). 라이브 확인: `/` SPA 200, `/api/resolve` 동일 origin 실링크 성공, 깊은 경로 SPA 폴백 200, assets 200.
 - ⚠️ `wrangler dev` 단독은 안 됨(루트 설정에 assets directory 없음) — dev/배포 모두 vite 경유.
 
-### 남은 것 (사용자 실기기 테스트)
-- [ ] 폰에서 https://k-map-router.chakra4267.workers.dev 열고 실링크 붙여넣기 → 네이버/카카오 버튼 탭 (앱스킴 + 미설치 폴백은 실폰에서만 검증 가능)
-- [ ] 카카오 `by=publictransit` 버그 실기기 재확인 / 네이버 웹(데스크톱) 검색 폴백 동작 확인
+### 1차 실기기 테스트 피드백 반영 (2026-06-10, 버전 25d499d4)
+사용자 1차 테스트에서 발견된 4건 수정·배포 완료:
+1. **모바일 길찾기 공유 링크(`g_st=`) no_coords** → §5 #3 `geocode=` base64 protobuf 디코딩 전략 추가
+   (0x15=lat×1e6, 0x1D=lng×1e6, 마지막 엔트리=목적지) + `daddr=`에서 이름 추출. selftest 9/9.
+2. **카카오 link/to가 `?target=car`로 깨짐** → 원인: 이름 세그먼트의 콤마(%2C). 콤마 제거 라벨로 수정, curl로 rt= 채워지는 것 확인.
+3. **모바일 앱이 route 없이 그냥 열림** → 추정 원인: 1.6s 타이머가 iOS 확인 대화상자 중 폴백(깨진 카카오 웹링크→유니버설 링크) 발동.
+   타이머 2.5s + Android는 `intent://`(S.browser_fallback_url 내장)로 전환. 공식 스펙 재확인: nmap dname=optional(N) 맞음, kakao by=publictransit 소문자 맞음.
+4. **네이버 데스크톱이 핀만 찍힘** → `/p/search/`(핀) 대신 `/p/directions/-/{x},{y},{label}/-/transit`(Web Mercator 변환)로 변경. **미검증 — 사용자 확인 필요.**
+
+### 남은 것 (사용자 실기기 재테스트)
+- [ ] 모바일: 두 링크 모두 네이버/카카오 버튼 → route 화면이 뜨는지 (iOS 2.5s 타이머 / Android intent://)
+- [ ] 데스크톱: 네이버 `/p/directions` 길찾기 화면이 뜨는지 (안되면 검색 폴백으로 되돌릴 것)
+- [ ] 카카오 `by=publictransit` 버그(자동차로 열림) 실기기 재확인
 
 ---
 
