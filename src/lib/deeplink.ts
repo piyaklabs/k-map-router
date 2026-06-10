@@ -50,12 +50,12 @@ export const NAVER_ANDROID_STORE_WEB = `https://play.google.com/store/apps/detai
  * 데스크톱 — 네이버 웹 길찾기 (비공식 /p/directions, 좌표는 Web Mercator EPSG:3857).
  * 형식: /p/directions/{출발|-}/{x},{y},{이름}/{경유|-}/transit
  */
-export function naverWebUrl({ lat, lng, name }: Destination): string {
+export function naverWebUrl(dest: Destination): string {
+  const { lat, lng } = dest;
   const x = (lng * 20037508.34) / 180;
   const y =
     (Math.log(Math.tan(((90 + lat) * Math.PI) / 360)) * 20037508.34) / Math.PI;
-  const label = encodeURIComponent(name ?? `${lat.toFixed(5)},${lng.toFixed(5)}`);
-  return `https://map.naver.com/p/directions/-/${x.toFixed(7)},${y.toFixed(7)},${label}/-/transit`;
+  return `https://map.naver.com/p/directions/-/${x.toFixed(7)},${y.toFixed(7)},${encodeURIComponent(webLabel(dest))}/-/transit`;
 }
 
 /** iOS용 kakaomap 스킴. sp 생략 시 현재 위치 출발. by 무시 버그 주의(보조로만). */
@@ -72,14 +72,20 @@ export function kakaoAndroidIntentUrl(dest: Destination): string {
 }
 
 /**
- * 카카오 웹 폴백 (구형 link API). ⚠️ 실측(2026-06): 이름 세그먼트에 콤마(%2C 포함)가
- * 들어가면 파싱이 깨져 목적지 없는 ?target=car로 폴백된다 → 콤마는 공백으로 치환.
+ * 웹 URL용 목적지 라벨. ⚠️ 카카오 link API는 이름 세그먼트에 콤마(%2C 포함)가
+ * 들어가면 파싱이 깨져 목적지 없는 ?target=car로 폴백된다(실측 2026-06)
+ * → 콤마/%는 공백 치환 후 공백 정리. 이름 없으면 좌표 라벨.
  */
-export function kakaoWebUrl({ lat, lng, name }: Destination): string {
-  const label = (name ?? `${lat.toFixed(5)} ${lng.toFixed(5)}`)
+function webLabel({ lat, lng, name }: Destination): string {
+  return (name ?? `${lat.toFixed(5)} ${lng.toFixed(5)}`)
     .replace(/[,%]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
-  return `https://map.kakao.com/link/to/${encodeURIComponent(label)},${lat},${lng}`;
+}
+
+/** 카카오 웹 폴백 (구형 link API). */
+export function kakaoWebUrl(dest: Destination): string {
+  return `https://map.kakao.com/link/to/${encodeURIComponent(webLabel(dest))},${dest.lat},${dest.lng}`;
 }
 
 /**

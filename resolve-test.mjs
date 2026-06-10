@@ -114,15 +114,42 @@ function decodeGeocodeParam(raw) {
   }
 }
 
-/** 장소명 추출 — URL의 /place/<name>/ 또는 og:title 메타태그 */
+// 좌표 문자열("37.5,127.0")은 이름이 아님 → 이름 후보에서 제외
+const COORD_LIKE = /^-?\d{1,3}\.\d+\s*,?\s*-?\d{1,3}\.\d+$/;
+
+function decodeNameSegment(raw) {
+  try {
+    const decoded = decodeURIComponent(raw.replace(/\+/g, " ")).trim();
+    if (decoded && !COORD_LIKE.test(decoded)) return decoded;
+  } catch {
+    /* malformed encoding → 이름 포기 */
+  }
+  return null;
+}
+
+/** 장소명 추출 — /place/, /dir/ 마지막 세그먼트, daddr=, og:title 순 (Worker와 동일) */
 function extractName(finalUrl, body) {
   const place = finalUrl.match(/\/maps\/place\/([^/@]+)/);
   if (place) {
-    try {
-      return decodeURIComponent(place[1].replace(/\+/g, " "));
-    } catch {
-      /* fallthrough */
+    const n = decodeNameSegment(place[1]);
+    if (n) return n;
+  }
+  // /dir/ 길찾기 URL: /maps/dir/{출발지}/…/{목적지}/@… — 마지막 일반 세그먼트=목적지
+  const dir = finalUrl.match(/\/maps\/dir\/([^?#]+)/);
+  if (dir) {
+    const segs = dir[1]
+      .split("/")
+      .filter((s) => s && !s.startsWith("@") && !s.startsWith("data="));
+    if (segs.length) {
+      const n = decodeNameSegment(segs[segs.length - 1]);
+      if (n) return n;
     }
+  }
+  // 모바일 길찾기 공유 링크: 목적지 이름이 daddr= 에 있음
+  const daddr = finalUrl.match(/[?&]daddr=([^&]+)/i);
+  if (daddr) {
+    const n = decodeNameSegment(daddr[1]);
+    if (n) return n;
   }
   const og = body.match(
     /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i,
