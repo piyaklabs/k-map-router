@@ -92,6 +92,23 @@ export default function App() {
           <div className="flex flex-col gap-4">
             <LinkInput key={inputKey} onSubmit={handleSubmit} busy={busy} />
 
+            {state.phase === "idle" && (
+              <ol className="mt-2 space-y-2.5 px-1 text-sm text-stone-400">
+                {[
+                  "Copy a place or route link in Google Maps",
+                  "Paste it here",
+                  "Open it in Naver or Kakao Map — done",
+                ].map((step, i) => (
+                  <li key={step} className="flex items-center gap-3">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-stone-200 text-[11px] font-semibold text-stone-500">
+                      {i + 1}
+                    </span>
+                    {step}
+                  </li>
+                ))}
+              </ol>
+            )}
+
             {state.phase === "resolving" && (
               <div className="animate-pulse rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
                 <p className="text-sm text-stone-500">
@@ -126,6 +143,15 @@ export default function App() {
         <p className="mt-3 text-center text-xs text-stone-400">
           No sign-up · Nothing stored · Works in your browser
         </p>
+        <a
+          href="https://log.piyaklabs.com"
+          target="_blank"
+          rel="noopener"
+          className="mt-2 flex items-center justify-center gap-1.5 text-xs text-stone-400 transition hover:text-stone-600"
+        >
+          <img src="/piyak.png" alt="" className="h-4 w-auto" />
+          by piyaklabs
+        </a>
       </footer>
     </div>
   );
