@@ -69,7 +69,7 @@ export default function LinkInput({ onSubmit, busy }: Props) {
       400,
     );
     try {
-      const text = (
+      let text = (
         await Promise.race([
           navigator.clipboard.readText(),
           new Promise<never>((_, reject) =>
@@ -77,10 +77,19 @@ export default function LinkInput({ onSubmit, busy }: Props) {
           ),
         ])
       ).trim();
+      // iOS WebKit 버그(실측): 허용 말풍선을 눌러도 빈 문자열이 올 수 있음 → 1회 재시도
+      if (!text) {
+        try {
+          text = (await navigator.clipboard.readText()).trim();
+        } catch {
+          /* 재시도 실패 → 아래 수동 폴백 */
+        }
+      }
       window.clearTimeout(bubbleHint);
       setHint(null);
       if (!text) {
-        setHint("Clipboard is empty — copy a Google Maps link first.");
+        // 진짜 빈 클립보드와 iOS 버그를 구분할 수 없음 → 수동 붙여넣기로 안내
+        manualPasteFallback();
         return;
       }
       setValue(text);

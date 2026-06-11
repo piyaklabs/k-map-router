@@ -155,8 +155,9 @@ export function kakaoWebUrl(dest: Destination, origin: Origin = null): string {
   }
   const [sx, sy] = wcongnamul(origin.lat, origin.lng);
   const [ex, ey] = wcongnamul(dest.lat, dest.lng);
+  // ⚠️ 웹의 이동수단 값은 앱 스킴(by=publictransit)과 다름: traffic=대중교통
   return (
-    `https://map.kakao.com/?map_type=TYPE_MAP&target=publictransit` +
+    `https://map.kakao.com/?map_type=TYPE_MAP&target=traffic` +
     `&rt=${sx},${sy},${ex},${ey}` +
     `&rt1=${encodeURIComponent(webLabel(origin))}` +
     `&rt2=${encodeURIComponent(webLabel(dest))}`
