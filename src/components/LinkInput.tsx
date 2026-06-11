@@ -47,11 +47,38 @@ export default function LinkInput({ onSubmit, busy }: Props) {
     onSubmit(trimmed);
   }
 
+  /** 수동 붙여넣기 폴백 (PRD §5.2 — iOS 권한 거부/미지원 대비). */
+  function manualPasteFallback() {
+    setHint(
+      "Couldn't read the clipboard — tap the box above, long-press, then Paste.",
+    );
+    inputRef.current?.focus();
+  }
+
   async function pasteFromClipboard() {
     setHint(null);
     setInvalid(false);
+    if (!navigator.clipboard?.readText) {
+      manualPasteFallback();
+      return;
+    }
+    // iOS는 허용 말풍선("Paste")을 띄움 — 안 누르면 promise가 조용히 멈춘 것처럼 보임.
+    // 잠깐 뒤 안내를 띄우고, 오래 걸리면 타임아웃 후 수동 폴백으로.
+    const bubbleHint = window.setTimeout(
+      () => setHint('If a "Paste" bubble appeared, tap it to allow.'),
+      400,
+    );
     try {
-      const text = (await navigator.clipboard.readText()).trim();
+      const text = (
+        await Promise.race([
+          navigator.clipboard.readText(),
+          new Promise<never>((_, reject) =>
+            window.setTimeout(() => reject(new Error("timeout")), 4000),
+          ),
+        ])
+      ).trim();
+      window.clearTimeout(bubbleHint);
+      setHint(null);
       if (!text) {
         setHint("Clipboard is empty — copy a Google Maps link first.");
         return;
@@ -59,9 +86,8 @@ export default function LinkInput({ onSubmit, busy }: Props) {
       setValue(text);
       submit(text);
     } catch {
-      // iOS Safari 등 권한 거부 → 수동 붙여넣기 폴백 (PRD §5.2)
-      setHint("Clipboard access was blocked — tap the field and paste manually.");
-      inputRef.current?.focus();
+      window.clearTimeout(bubbleHint);
+      manualPasteFallback();
     }
   }
 

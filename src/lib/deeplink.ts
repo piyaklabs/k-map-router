@@ -83,7 +83,7 @@ export function kakaoAppUrl(dest: Destination, origin: Origin): string {
 
 export function kakaoAndroidIntentUrl(dest: Destination, origin: Origin): string {
   const sp = origin ? `sp=${origin.lat},${origin.lng}&` : "";
-  const fallback = encodeURIComponent(kakaoWebUrl(dest));
+  const fallback = encodeURIComponent(kakaoWebUrl(dest, origin));
   return (
     `intent://route?${sp}ep=${dest.lat},${dest.lng}&by=publictransit` +
     `#Intent;scheme=kakaomap;package=${KAKAO_ANDROID_PKG};S.browser_fallback_url=${fallback};end`
@@ -102,9 +102,65 @@ function webLabel({ lat, lng, name }: Destination): string {
     .trim();
 }
 
-/** 카카오 웹 폴백 (구형 link API — 출발지 전달은 미지원, 목적지만). */
-export function kakaoWebUrl(dest: Destination): string {
-  return `https://map.kakao.com/link/to/${encodeURIComponent(webLabel(dest))},${dest.lat},${dest.lng}`;
+/**
+ * WGS84 → WCongnamul (카카오 웹 내부 좌표계 = EPSG:5181 TM × 2.5).
+ * GRS80, lat0=38, lon0=127, k0=1, FE=200000, FN=500000.
+ * 실측 검증: 카카오 link/to 리다이렉트가 변환해 준 값과 3개 지점 정수 단위 일치.
+ */
+function wcongnamul(lat: number, lng: number): [number, number] {
+  const a = 6378137;
+  const f = 1 / 298.257222101;
+  const e2 = f * (2 - f);
+  const ep2 = e2 / (1 - e2);
+  const lat0 = (38 * Math.PI) / 180;
+  const phi = (lat * Math.PI) / 180;
+  const dLam = ((lng - 127) * Math.PI) / 180;
+  const N = a / Math.sqrt(1 - e2 * Math.sin(phi) ** 2);
+  const T = Math.tan(phi) ** 2;
+  const C = ep2 * Math.cos(phi) ** 2;
+  const A = dLam * Math.cos(phi);
+  const M = (p: number) =>
+    a *
+    ((1 - e2 / 4 - (3 * e2 ** 2) / 64 - (5 * e2 ** 3) / 256) * p -
+      ((3 * e2) / 8 + (3 * e2 ** 2) / 32 + (45 * e2 ** 3) / 1024) *
+        Math.sin(2 * p) +
+      ((15 * e2 ** 2) / 256 + (45 * e2 ** 3) / 1024) * Math.sin(4 * p) -
+      ((35 * e2 ** 3) / 3072) * Math.sin(6 * p));
+  const x =
+    200000 +
+    N *
+      (A +
+        ((1 - T + C) * A ** 3) / 6 +
+        ((5 - 18 * T + T ** 2 + 72 * C - 58 * ep2) * A ** 5) / 120);
+  const y =
+    500000 +
+    (M(phi) -
+      M(lat0) +
+      N *
+        Math.tan(phi) *
+        (A ** 2 / 2 +
+          ((5 - T + 9 * C + 4 * C ** 2) * A ** 4) / 24 +
+          ((61 - 58 * T + T ** 2 + 600 * C - 330 * ep2) * A ** 6) / 720));
+  return [Math.round(x * 2.5), Math.round(y * 2.5)];
+}
+
+/**
+ * 카카오 웹 폴백. 출발지 없으면 구형 link API(검증됨).
+ * 출발지 있으면 link API가 미지원이라 link/to 리다이렉트 결과 포맷
+ * (?rt={sx},{sy},{ex},{ey}&rt1=&rt2=)을 WCongnamul 좌표로 직접 구성.
+ */
+export function kakaoWebUrl(dest: Destination, origin: Origin = null): string {
+  if (!origin) {
+    return `https://map.kakao.com/link/to/${encodeURIComponent(webLabel(dest))},${dest.lat},${dest.lng}`;
+  }
+  const [sx, sy] = wcongnamul(origin.lat, origin.lng);
+  const [ex, ey] = wcongnamul(dest.lat, dest.lng);
+  return (
+    `https://map.kakao.com/?map_type=TYPE_MAP&target=publictransit` +
+    `&rt=${sx},${sy},${ex},${ey}` +
+    `&rt1=${encodeURIComponent(webLabel(origin))}` +
+    `&rt2=${encodeURIComponent(webLabel(dest))}`
+  );
 }
 
 /**
@@ -156,10 +212,10 @@ export function openKakao(
   platform: Platform,
 ): void {
   if (platform === "desktop") {
-    window.open(kakaoWebUrl(dest), "_blank", "noopener");
+    window.open(kakaoWebUrl(dest, origin), "_blank", "noopener");
   } else if (platform === "android") {
-    openWithFallback(kakaoAndroidIntentUrl(dest, origin), kakaoWebUrl(dest));
+    openWithFallback(kakaoAndroidIntentUrl(dest, origin), kakaoWebUrl(dest, origin));
   } else {
-    openWithFallback(kakaoAppUrl(dest, origin), kakaoWebUrl(dest));
+    openWithFallback(kakaoAppUrl(dest, origin), kakaoWebUrl(dest, origin));
   }
 }

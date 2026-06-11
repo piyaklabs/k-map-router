@@ -74,6 +74,10 @@ URL과 HTML 바디를 합친 텍스트에 아래 순서로 적용. 먼저 매칭
   - ⚠️ **이름 세그먼트에 콤마(`,`/`%2C`) 금지** — 들어가면 파싱 깨져 목적지 없는
     `?target=car`로 폴백(실측 2026-06). 이름 없을 때 `"lat,lng"`를 이름으로 넣으면 안 됨
     → 콤마를 공백 치환한 라벨 사용.
+  - **link API는 출발지 미지원.** 출발지 필요하면 link/to가 리다이렉트하는 내부 포맷을 직접 구성:
+    `map.kakao.com/?map_type=TYPE_MAP&target=…&rt={sx},{sy},{ex},{ey}&rt1={출발명}&rt2={도착명}`
+    — 좌표는 **WCongnamul = EPSG:5181(GRS80 TM, lat0=38/lon0=127/FE=200000/FN=500000) × 2.5**.
+    변환식은 카카오 자체 변환값과 정수 단위 일치 검증됨(실측 2026-06, `src/lib/deeplink.ts`).
 - 미설치 폴백: iOS `id304608425` / Android `net.daum.android.map`
 
 ### 프론트 실행 분기
