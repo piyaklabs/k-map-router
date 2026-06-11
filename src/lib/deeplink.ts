@@ -15,7 +15,7 @@ export interface Destination {
 }
 
 // 네이버 nmap 스킴 필수 식별자 — 배포 도메인
-const APPNAME = "k-map-router.chakra4267.workers.dev";
+const APPNAME = "kmap.piyaklabs.com";
 
 const NAVER_ANDROID_PKG = "com.nhn.android.nmap";
 const KAKAO_ANDROID_PKG = "net.daum.android.map";

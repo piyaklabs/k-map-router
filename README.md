@@ -2,7 +2,7 @@
 
 **Turn Google Maps links into Naver / Kakao directions — built for travelers in Korea.**
 
-🌐 Live: https://k-map-router.chakra4267.workers.dev
+🌐 Live: https://kmap.piyaklabs.com
 
 Google Maps can't give walking or transit navigation in Korea (map-data export
 restrictions). Locals use Naver Map and KakaoMap instead — but copying a place

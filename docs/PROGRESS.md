@@ -4,7 +4,7 @@
 > **마지막 갱신: 2026-06-10.** 빌드 방식: 플랜 → 사용자 승인 → Phase별 빌드 → 각 Phase 끝 보고.
 
 ## 현재 상태 한 줄
-**Phase 1·2·3 전부 완료 — MVP 배포 라이브(https://k-map-router.chakra4267.workers.dev). 남은 것: 실폰 딥링크 테스트(사용자).**
+**MVP 1.0 출시 — https://kmap.piyaklabs.com (사용자 실기기 검증 완료). 리포: github.com/piyaklabs/k-map-router (private).**
 
 ---
 
@@ -131,11 +131,22 @@
   readText 재시도는 무의미했음. → `clipboard.read()`로 교체: text/uri-list → text/plain →
   text/html(href 추출) 순으로 읽기. read() 미지원 브라우저만 readText 폴백.
 
-### 남은 확인
-- [ ] iOS Paste: clipboard.read() 방식으로 한 번에 되는지
-- [ ] 데스크톱 카카오가 **대중교통 모드**로 선택돼 열리는지 (`target=traffic`)
-- [ ] **Android intent:// 경로 미검증** — Android 기기 확보 시 확인.
-- [ ] 카카오 앱이 대중교통/자동차 어느 모드로 열렸는지 (by 버그 기록용)
+### 6차 테스트 = 1.0 판정 (2026-06-11)
+✅ **사용자 확인: 전부 정상** — iOS Paste(clipboard.read 방식), 카카오 웹 대중교통 모드 선택 포함.
+사용자 판단: "1.0 버전으로 봐도 문제없을 정도의 MVP".
+
+### 1.0 출시 작업 (2026-06-11)
+- `README.md` 작성 (사용가이드·API·아키텍처·개발 명령).
+- GitHub 리포 이관: `jhoonkim92/k-map-router` → **`piyaklabs/k-map-router`** (private 유지, 구 URL 자동 리다이렉트).
+- 커스텀 도메인 배포: **https://kmap.piyaklabs.com** (wrangler.jsonc `routes` custom_domain).
+  ⚠️ 커스텀 도메인 추가 시 wrangler가 workers.dev 라우트 자동 비활성화 → 구 URL 404 (의도적 유지. 복구는 `workers_dev: true`).
+- 네이버 `appname` → kmap.piyaklabs.com 으로 갱신.
+- 컨텍스트: piyaklabs = 사이드 프로젝트용 조직. piyaklabs.com DNS는 Cloudflare. 블로그(Astro)가 log.piyaklabs.com에 이미 배포돼 있음.
+
+### 남은 항목 (1.0 이후)
+- [ ] **Android 실기기 미검증** — intent:// 경로 (기기 확보 시).
+- [ ] 카카오 앱이 대중교통/자동차 어느 모드로 열리는지 (by 버그 기록용, 동작엔 지장 없음).
+- [ ] PRD "이후 고도화" 후보: reverse geocoding, Share Target(PWA), 다국어, QR, AdSense 실집행, SEO/유입.
 
 ---
 
