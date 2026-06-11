@@ -55,10 +55,41 @@ export default function LinkInput({ onSubmit, busy }: Props) {
     inputRef.current?.focus();
   }
 
+  /**
+   * 클립보드에서 텍스트/URL 읽기.
+   * ⚠️ iOS 실측: 구글맵 앱 "링크 복사"는 클립보드에 URL 타입(text/uri-list)으로
+   * 들어가서 readText()(text/plain 전용)가 빈 문자열을 반환한다.
+   * → read()로 uri-list까지 읽고, read() 미지원 브라우저만 readText() 사용.
+   */
+  async function readClipboardText(): Promise<string> {
+    if (navigator.clipboard.read) {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        for (const type of ["text/uri-list", "text/plain", "text/html"]) {
+          if (!item.types.includes(type)) continue;
+          let text = (await (await item.getType(type)).text()).trim();
+          if (type === "text/uri-list") {
+            text =
+              text
+                .split("\n")
+                .map((l) => l.trim())
+                .find((l) => l && !l.startsWith("#")) ?? "";
+          } else if (type === "text/html") {
+            const href = text.match(/href="([^"]+)"/);
+            text = href ? href[1] : text.replace(/<[^>]+>/g, "").trim();
+          }
+          if (text) return text;
+        }
+      }
+      return "";
+    }
+    return (await navigator.clipboard.readText()).trim();
+  }
+
   async function pasteFromClipboard() {
     setHint(null);
     setInvalid(false);
-    if (!navigator.clipboard?.readText) {
+    if (!navigator.clipboard) {
       manualPasteFallback();
       return;
     }
@@ -69,26 +100,16 @@ export default function LinkInput({ onSubmit, busy }: Props) {
       400,
     );
     try {
-      let text = (
-        await Promise.race([
-          navigator.clipboard.readText(),
-          new Promise<never>((_, reject) =>
-            window.setTimeout(() => reject(new Error("timeout")), 4000),
-          ),
-        ])
-      ).trim();
-      // iOS WebKit 버그(실측): 허용 말풍선을 눌러도 빈 문자열이 올 수 있음 → 1회 재시도
-      if (!text) {
-        try {
-          text = (await navigator.clipboard.readText()).trim();
-        } catch {
-          /* 재시도 실패 → 아래 수동 폴백 */
-        }
-      }
+      const text = await Promise.race([
+        readClipboardText(),
+        new Promise<never>((_, reject) =>
+          window.setTimeout(() => reject(new Error("timeout")), 4000),
+        ),
+      ]);
       window.clearTimeout(bubbleHint);
       setHint(null);
       if (!text) {
-        // 진짜 빈 클립보드와 iOS 버그를 구분할 수 없음 → 수동 붙여넣기로 안내
+        // 진짜 빈 클립보드와 타입 미노출을 구분할 수 없음 → 수동 붙여넣기로 안내
         manualPasteFallback();
         return;
       }

@@ -124,9 +124,16 @@
 - 카카오 웹 이동수단 기본값 없음 → `target=publictransit`(앱 어휘)이 웹에선 무효.
   **웹은 `target=traffic`=대중교통** (앱 스킴과 어휘 다름 주의)으로 수정.
 
+### 5차 테스트 (2026-06-11, 버전 3300873b)
+- ✅ 데스크톱 카카오 정상 동작 확인 (4차 수정 검증됨).
+- iOS(15 Pro) Paste 여전히 실패 → **근본 원인 판명: 구글맵 앱 "링크 복사"는 클립보드에
+  URL 타입(text/uri-list)으로 들어가 `readText()`(text/plain 전용)가 빈 문자열 반환.**
+  readText 재시도는 무의미했음. → `clipboard.read()`로 교체: text/uri-list → text/plain →
+  text/html(href 추출) 순으로 읽기. read() 미지원 브라우저만 readText 폴백.
+
 ### 남은 확인
-- [ ] 데스크톱 카카오가 대중교통 모드로 열리는지 (`target=traffic`)
-- [ ] iOS Paste: 말풍선 탭 → 재시도로 한 번에 되는지, 아니면 수동 안내로 빠지는지
+- [ ] iOS Paste: clipboard.read() 방식으로 한 번에 되는지
+- [ ] 데스크톱 카카오가 **대중교통 모드**로 선택돼 열리는지 (`target=traffic`)
 - [ ] **Android intent:// 경로 미검증** — Android 기기 확보 시 확인.
 - [ ] 카카오 앱이 대중교통/자동차 어느 모드로 열렸는지 (by 버그 기록용)
 
