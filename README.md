@@ -54,7 +54,9 @@ That's it. The right app opens with the destination — and the route — filled
 - **Single Cloudflare Worker** serving both the React SPA (static assets
   binding) and `/api/resolve` — same origin, free tier, zero external
   dependencies (coordinate extraction is fetch + regex/decoding only).
-- **Stateless.** Nothing is stored — no DB, no cookies, no localStorage.
+- **Stateless.** Nothing is stored — no DB, no app cookies, no localStorage.
+  (Cloudflare Web Analytics is enabled for visit counts; it is cookieless and
+  stores no personal data.)
 - Coordinate resolution happens server-side (browser → Google is blocked by
   CORS); the Worker follows redirects with a browser UA and applies seven
   extraction strategies in priority order (see `CLAUDE.md` §5).
