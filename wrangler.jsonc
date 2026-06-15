@@ -10,6 +10,8 @@
   "routes": [{ "pattern": "kmap.piyaklabs.com", "custom_domain": true }],
   "assets": {
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
+    // Worker를 먼저 태워 HTML 응답에 no-cache를 붙인다(배포 즉시 반영). 해시된 자산은 그대로 통과.
+    "run_worker_first": true
   }
 }

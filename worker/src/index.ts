@@ -32,6 +32,17 @@ function fail(reason: FailReason, message: string, status = 400): Response {
   return json({ success: false, reason, message }, status);
 }
 
+/** 자산 응답의 Cache-Control만 교체해 새 Response로 반환. */
+function withCacheControl(res: Response, value: string): Response {
+  const headers = new Headers(res.headers);
+  headers.set("Cache-Control", value);
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers,
+  });
+}
+
 /**
  * 입력 검증 (프론트와 백 양쪽에서 — 여기가 권위, CLAUDE.md §7).
  * 살아있는 형태: maps.app.goo.gl/*, *.google.com|co.kr (/maps 또는 maps. 서브도메인).
@@ -113,9 +124,21 @@ export default {
       return handleResolve(request);
     }
 
-    // Phase 3: 정적 자산(SPA)을 동일 origin에서 서빙
+    // 정적 자산(SPA) 동일 origin 서빙.
+    // HTML은 no-cache로 강제해 배포가 즉시 반영되게 한다(해시된 JS/CSS는 기본 캐시 유지).
+    // index.html이 옛 자산 해시를 가리킨 채 캐시되면 업데이트가 안 보이던 문제 방지.
     if (env.ASSETS) {
-      return env.ASSETS.fetch(request);
+      const res = await env.ASSETS.fetch(request);
+      const contentType = res.headers.get("content-type") || "";
+      // HTML: 항상 최신 (배포 즉시 반영)
+      if (contentType.includes("text/html")) {
+        return withCacheControl(res, "no-store, no-cache, must-revalidate");
+      }
+      // 해시된 자산(/assets/*): 내용 바뀌면 파일명도 바뀌므로 영구 캐시
+      if (url.pathname.startsWith("/assets/")) {
+        return withCacheControl(res, "public, max-age=31536000, immutable");
+      }
+      return res;
     }
     return new Response("Not found", { status: 404, headers: CORS_HEADERS });
   },

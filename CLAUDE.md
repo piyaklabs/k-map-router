@@ -152,3 +152,9 @@ URL과 HTML 바디를 합친 텍스트에 아래 순서로 적용. 먼저 매칭
 ```
 > ⚠️ `wrangler dev` 단독 실행은 assets directory가 루트 설정에 없어 안 됨 —
 > dev/배포 모두 vite 경유(`npm run dev` / `npm run deploy`)가 정석.
+
+### 캐시 정책 (배포 즉시 반영)
+- wrangler.jsonc `assets.run_worker_first: true` → 모든 요청이 Worker를 먼저 거침.
+- Worker가 응답 Cache-Control 교체: **HTML = `no-store, no-cache, must-revalidate`**(배포 즉시 반영),
+  **`/assets/*`(해시 파일) = `max-age=31536000, immutable`**(영구 캐시). 그 외는 기본값 통과.
+- ⚠️ 이거 없으면 index.html이 옛 자산 해시를 가리킨 채 브라우저/iOS에 캐시돼 업데이트가 안 보임(실측).
