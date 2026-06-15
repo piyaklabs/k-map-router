@@ -56,17 +56,16 @@ export default function LinkInput({ onSubmit, busy }: Props) {
   }
 
   /**
-   * 클립보드에서 텍스트/URL 읽기.
-   * ⚠️ iOS 실측: 구글맵 앱 "링크 복사"는 클립보드에 URL 타입(text/uri-list)으로
-   * 들어가서 readText()(text/plain 전용)가 빈 문자열을 반환한다.
-   * → read()로 uri-list까지 읽고, read() 미지원 브라우저만 readText() 사용.
+   * ClipboardItem들에서 URL/텍스트 추출.
+   * ⚠️ iOS 실측: 구글맵 앱 "링크 복사"는 URL 타입(text/uri-list)으로 들어가
+   * readText()(text/plain 전용)가 빈 문자열을 반환한다 → uri-list를 먼저 본다.
+   * 타입별 getType()이 iOS에서 간헐 실패하므로 각 타입을 try/catch로 감싸 넘어간다.
    */
-  async function readClipboardText(): Promise<string> {
-    if (navigator.clipboard.read) {
-      const items = await navigator.clipboard.read();
-      for (const item of items) {
-        for (const type of ["text/uri-list", "text/plain", "text/html"]) {
-          if (!item.types.includes(type)) continue;
+  async function extractFromItems(items: ClipboardItems): Promise<string> {
+    for (const item of items) {
+      for (const type of ["text/uri-list", "text/plain", "text/html"]) {
+        if (!item.types.includes(type)) continue;
+        try {
           let text = (await (await item.getType(type)).text()).trim();
           if (type === "text/uri-list") {
             text =
@@ -76,40 +75,53 @@ export default function LinkInput({ onSubmit, busy }: Props) {
                 .find((l) => l && !l.startsWith("#")) ?? "";
           } else if (type === "text/html") {
             const href = text.match(/href="([^"]+)"/);
-            text = href ? href[1] : text.replace(/<[^>]+>/g, "").trim();
+            text = href ? href[1] : text.replace(/<[^>]+>/g, " ").trim();
           }
           if (text) return text;
+        } catch {
+          /* 이 타입 실패 → 다음 타입 시도 */
         }
       }
-      return "";
     }
-    return (await navigator.clipboard.readText()).trim();
+    return "";
   }
 
   async function pasteFromClipboard() {
     setHint(null);
     setInvalid(false);
-    if (!navigator.clipboard) {
+    const clip = navigator.clipboard;
+    if (!clip) {
       manualPasteFallback();
       return;
     }
-    // iOS는 허용 말풍선("Paste")을 띄움 — 안 누르면 promise가 조용히 멈춘 것처럼 보임.
-    // 잠깐 뒤 안내를 띄우고, 오래 걸리면 타임아웃 후 수동 폴백으로.
+    // iOS는 "붙여넣기" 말풍선을 띄우고 탭을 기다린다. 타임아웃으로 race하면
+    // 사용자가 탭하기 전에 실패로 떨어지므로(이전 버그) 절대 race하지 않는다.
+    // 말풍선이 떴을 때를 대비한 안내만 살짝 띄운다.
     const bubbleHint = window.setTimeout(
-      () => setHint('If a "Paste" bubble appeared, tap it to allow.'),
-      400,
+      () => setHint('If a "Paste" button appears, tap it to allow.'),
+      600,
     );
     try {
-      const text = await Promise.race([
-        readClipboardText(),
-        new Promise<never>((_, reject) =>
-          window.setTimeout(() => reject(new Error("timeout")), 4000),
-        ),
-      ]);
+      let text = "";
+      // 1) read() — URL 타입(구글맵 링크 복사) 처리
+      if (clip.read) {
+        try {
+          text = await extractFromItems(await clip.read());
+        } catch {
+          /* read 거부/실패 → readText로 폴백 */
+        }
+      }
+      // 2) readText() — 일반 텍스트 클립보드 / read() 미지원 브라우저(데스크톱 등)
+      if (!text && clip.readText) {
+        try {
+          text = (await clip.readText()).trim();
+        } catch {
+          /* 무시 → 수동 폴백 */
+        }
+      }
       window.clearTimeout(bubbleHint);
       setHint(null);
       if (!text) {
-        // 진짜 빈 클립보드와 타입 미노출을 구분할 수 없음 → 수동 붙여넣기로 안내
         manualPasteFallback();
         return;
       }
