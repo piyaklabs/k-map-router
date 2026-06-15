@@ -47,40 +47,39 @@ export default function LinkInput({ onSubmit, busy }: Props) {
     onSubmit(trimmed);
   }
 
-  /** 수동 붙여넣기 폴백 (PRD §5.2 — iOS 권한 거부/미지원 대비). */
+  /** 수동 붙여넣기 폴백 (클립보드 읽기 거부/미지원 시 — PRD §5.2). */
   function manualPasteFallback() {
     setHint(
-      "Couldn't read the clipboard — tap the box above, long-press, then Paste.",
+      "Couldn't read the clipboard — tap the field above, long-press, then Paste.",
     );
     inputRef.current?.focus();
   }
 
   /**
-   * ClipboardItem들에서 URL/텍스트 추출.
-   * ⚠️ iOS 실측: 구글맵 앱 "링크 복사"는 URL 타입(text/uri-list)으로 들어가
-   * readText()(text/plain 전용)가 빈 문자열을 반환한다 → uri-list를 먼저 본다.
-   * 타입별 getType()이 iOS에서 간헐 실패하므로 각 타입을 try/catch로 감싸 넘어간다.
+   * 단일 ClipboardItem에서 URL/텍스트 추출. getType은 이미 읽은 item에서 꺼내는 거라
+   * 권한 재요청이 없다(여러 번 호출 안전). 우선순위: uri-list → plain → html.
+   * ⚠️ 구글맵 "링크 복사"는 iOS에서 text/uri-list 타입으로만 들어온다.
    */
-  async function extractFromItems(items: ClipboardItems): Promise<string> {
-    for (const item of items) {
-      for (const type of ["text/uri-list", "text/plain", "text/html"]) {
-        if (!item.types.includes(type)) continue;
-        try {
-          let text = (await (await item.getType(type)).text()).trim();
-          if (type === "text/uri-list") {
-            text =
-              text
-                .split("\n")
-                .map((l) => l.trim())
-                .find((l) => l && !l.startsWith("#")) ?? "";
-          } else if (type === "text/html") {
-            const href = text.match(/href="([^"]+)"/);
-            text = href ? href[1] : text.replace(/<[^>]+>/g, " ").trim();
-          }
-          if (text) return text;
-        } catch {
-          /* 이 타입 실패 → 다음 타입 시도 */
+  async function extractUrl(item: ClipboardItem): Promise<string> {
+    for (const type of ["text/uri-list", "text/plain", "text/html"]) {
+      if (!item.types.includes(type)) continue;
+      try {
+        const raw = (await (await item.getType(type)).text()).trim();
+        if (type === "text/uri-list") {
+          const line = raw
+            .split("\n")
+            .map((l) => l.trim())
+            .find((l) => l && !l.startsWith("#"));
+          if (line) return line;
+        } else if (type === "text/html") {
+          const href = raw.match(/href="([^"]+)"/);
+          const t = (href ? href[1] : raw.replace(/<[^>]+>/g, " ")).trim();
+          if (t) return t;
+        } else if (raw) {
+          return raw;
         }
+      } catch {
+        /* 이 타입 실패 → 다음 타입 */
       }
     }
     return "";
@@ -90,34 +89,27 @@ export default function LinkInput({ onSubmit, busy }: Props) {
     setHint(null);
     setInvalid(false);
     const clip = navigator.clipboard;
-    if (!clip?.readText && !clip?.read) {
+    if (!clip?.read && !clip?.readText) {
       manualPasteFallback();
       return;
     }
-    // 말풍선이 떴을 때를 대비한 안내만 살짝 띄운다(타임아웃 race 금지 — 탭 전에 실패하던 이전 버그).
+    // ⚠️ iOS(WebKit)는 await 이후 user activation이 만료돼 "두 번째" 클립보드 호출이
+    //    막힌다. 그래서 read→readText 폴백 체인이 깨졌었다 → 제스처 안에서 딱 한 번만 호출.
+    //    "Paste" 권한 말풍선은 iOS가 강제하는 것이라 제거 불가(정상 동작).
     const bubbleHint = window.setTimeout(
       () => setHint('If a "Paste" button appears, tap it to allow.'),
       600,
     );
     try {
       let text = "";
-      // 1) readText() 먼저 — iOS Safari 지원이 가장 안정적이고 말풍선이 한 번만 뜬다.
-      //    (네이티브 붙여넣기가 되는 한 텍스트는 클립보드에 있으므로 대개 여기서 끝.)
-      if (clip.readText) {
-        try {
-          text = (await clip.readText()).trim();
-        } catch {
-          /* read()로 폴백 */
+      if (clip.read) {
+        const items = await clip.read();
+        for (const item of items) {
+          text = await extractUrl(item);
+          if (text) break;
         }
-      }
-      // 2) read() — readText가 빈 값일 때만(구글맵이 URL 타입 text/uri-list로만 넣은 드문 경우).
-      //    ⚠️ read()를 먼저 부르면 iOS에서 getType('text/uri-list')가 실패해 버튼이 죽었었다.
-      if (!text && clip.read) {
-        try {
-          text = await extractFromItems(await clip.read());
-        } catch {
-          /* 무시 → 수동 폴백 */
-        }
+      } else if (clip.readText) {
+        text = (await clip.readText()).trim();
       }
       window.clearTimeout(bubbleHint);
       setHint(null);
