@@ -90,31 +90,31 @@ export default function LinkInput({ onSubmit, busy }: Props) {
     setHint(null);
     setInvalid(false);
     const clip = navigator.clipboard;
-    if (!clip) {
+    if (!clip?.readText && !clip?.read) {
       manualPasteFallback();
       return;
     }
-    // iOS는 "붙여넣기" 말풍선을 띄우고 탭을 기다린다. 타임아웃으로 race하면
-    // 사용자가 탭하기 전에 실패로 떨어지므로(이전 버그) 절대 race하지 않는다.
-    // 말풍선이 떴을 때를 대비한 안내만 살짝 띄운다.
+    // 말풍선이 떴을 때를 대비한 안내만 살짝 띄운다(타임아웃 race 금지 — 탭 전에 실패하던 이전 버그).
     const bubbleHint = window.setTimeout(
       () => setHint('If a "Paste" button appears, tap it to allow.'),
       600,
     );
     try {
       let text = "";
-      // 1) read() — URL 타입(구글맵 링크 복사) 처리
-      if (clip.read) {
-        try {
-          text = await extractFromItems(await clip.read());
-        } catch {
-          /* read 거부/실패 → readText로 폴백 */
-        }
-      }
-      // 2) readText() — 일반 텍스트 클립보드 / read() 미지원 브라우저(데스크톱 등)
-      if (!text && clip.readText) {
+      // 1) readText() 먼저 — iOS Safari 지원이 가장 안정적이고 말풍선이 한 번만 뜬다.
+      //    (네이티브 붙여넣기가 되는 한 텍스트는 클립보드에 있으므로 대개 여기서 끝.)
+      if (clip.readText) {
         try {
           text = (await clip.readText()).trim();
+        } catch {
+          /* read()로 폴백 */
+        }
+      }
+      // 2) read() — readText가 빈 값일 때만(구글맵이 URL 타입 text/uri-list로만 넣은 드문 경우).
+      //    ⚠️ read()를 먼저 부르면 iOS에서 getType('text/uri-list')가 실패해 버튼이 죽었었다.
+      if (!text && clip.read) {
+        try {
+          text = await extractFromItems(await clip.read());
         } catch {
           /* 무시 → 수동 폴백 */
         }
