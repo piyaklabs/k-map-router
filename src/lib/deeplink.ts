@@ -5,6 +5,7 @@
  *
  * 출발지(origin): A→B 길찾기 공유 링크에서만 존재. 없으면 파라미터 생략
  * → 앱이 현재 위치를 출발지로 사용.
+ * 이동수단(mode): walk | transit. 가까우면(≤1.2km) 도보가 기본, 멀면 대중교통.
  */
 import type { Platform } from "./ua";
 
@@ -14,6 +15,11 @@ export interface Destination {
   name: string | null;
 }
 
+export type Mode = "walk" | "transit";
+
+/** 도보 기본 거리 임계값(km). 이하면 walk, 초과면 transit. */
+export const WALK_THRESHOLD_KM = 1.2;
+
 // 네이버 nmap 스킴 필수 식별자 — 배포 도메인
 const APPNAME = "kmap.piyaklabs.com";
 
@@ -22,6 +28,25 @@ const KAKAO_ANDROID_PKG = "net.daum.android.map";
 
 type Origin = Destination | null;
 
+/** 두 좌표 간 거리(km) — Haversine. 출발지가 있을 때 도보/대중교통 자동 판단용. */
+export function haversineKm(a: Destination, b: Destination): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+/** 출발지가 있고 거리가 임계값 이하면 도보, 아니면 대중교통. */
+export function defaultMode(dest: Destination, origin: Origin): Mode {
+  if (origin && haversineKm(origin, dest) <= WALK_THRESHOLD_KM) return "walk";
+  return "transit";
+}
+
+// ── 네이버 ──────────────────────────────────────────────────────────────
 function naverQuery(dest: Destination, origin: Origin): string {
   let q = "";
   if (origin) {
@@ -35,21 +60,28 @@ function naverQuery(dest: Destination, origin: Origin): string {
   return `${q}&appname=${encodeURIComponent(APPNAME)}`;
 }
 
+// 네이버 route 액션패스: 도보=route/walk, 대중교통=route/public
+const naverPath = (mode: Mode) => (mode === "walk" ? "route/walk" : "route/public");
+
 /** iOS용 nmap 스킴. (Android는 intent:// 사용 — 파라미터 전달 보장 + 스토어 폴백 내장) */
-export function naverAppUrl(dest: Destination, origin: Origin): string {
-  return `nmap://route/public?${naverQuery(dest, origin)}`;
+export function naverAppUrl(dest: Destination, origin: Origin, mode: Mode): string {
+  return `nmap://${naverPath(mode)}?${naverQuery(dest, origin)}`;
 }
 
 /**
  * Android Chrome 계열은 커스텀 스킴보다 intent://가 정석:
  * 파라미터가 그대로 앱 인텐트로 전달되고, 미설치면 S.browser_fallback_url로 빠진다.
  */
-export function naverAndroidIntentUrl(dest: Destination, origin: Origin): string {
+export function naverAndroidIntentUrl(
+  dest: Destination,
+  origin: Origin,
+  mode: Mode,
+): string {
   const fallback = encodeURIComponent(
     `https://play.google.com/store/apps/details?id=${NAVER_ANDROID_PKG}`,
   );
   return (
-    `intent://route/public?${naverQuery(dest, origin)}` +
+    `intent://${naverPath(mode)}?${naverQuery(dest, origin)}` +
     `#Intent;scheme=nmap;package=${NAVER_ANDROID_PKG};S.browser_fallback_url=${fallback};end`
   );
 }
@@ -68,38 +100,34 @@ function naverWebSegment(p: Destination): string {
 
 /**
  * 데스크톱 — 네이버 웹 길찾기 (비공식 /p/directions).
- * 형식: /p/directions/{출발|-}/{x},{y},{이름}/{경유|-}/transit
+ * 형식: /p/directions/{출발|-}/{도착}/{경유|-}/{mode}  (mode: walk|transit|car)
  */
-export function naverWebUrl(dest: Destination, origin: Origin): string {
+export function naverWebUrl(dest: Destination, origin: Origin, mode: Mode): string {
   const start = origin ? naverWebSegment(origin) : "-";
-  return `https://map.naver.com/p/directions/${start}/${naverWebSegment(dest)}/-/transit`;
+  return `https://map.naver.com/p/directions/${start}/${naverWebSegment(dest)}/-/${mode}`;
 }
+
+// ── 카카오 ──────────────────────────────────────────────────────────────
+// 앱 스킴 이동수단: 도보=foot, 대중교통=publictransit
+const kakaoBy = (mode: Mode) => (mode === "walk" ? "foot" : "publictransit");
 
 /** iOS용 kakaomap 스킴. sp 생략 시 현재 위치 출발. by 무시 버그 주의(보조로만). */
-export function kakaoAppUrl(dest: Destination, origin: Origin): string {
+export function kakaoAppUrl(dest: Destination, origin: Origin, mode: Mode): string {
   const sp = origin ? `sp=${origin.lat},${origin.lng}&` : "";
-  return `kakaomap://route?${sp}ep=${dest.lat},${dest.lng}&by=publictransit`;
+  return `kakaomap://route?${sp}ep=${dest.lat},${dest.lng}&by=${kakaoBy(mode)}`;
 }
 
-export function kakaoAndroidIntentUrl(dest: Destination, origin: Origin): string {
+export function kakaoAndroidIntentUrl(
+  dest: Destination,
+  origin: Origin,
+  mode: Mode,
+): string {
   const sp = origin ? `sp=${origin.lat},${origin.lng}&` : "";
-  const fallback = encodeURIComponent(kakaoWebUrl(dest, origin));
+  const fallback = encodeURIComponent(kakaoWebUrl(dest, origin, mode));
   return (
-    `intent://route?${sp}ep=${dest.lat},${dest.lng}&by=publictransit` +
+    `intent://route?${sp}ep=${dest.lat},${dest.lng}&by=${kakaoBy(mode)}` +
     `#Intent;scheme=kakaomap;package=${KAKAO_ANDROID_PKG};S.browser_fallback_url=${fallback};end`
   );
-}
-
-/**
- * 웹 URL용 목적지 라벨. ⚠️ 카카오 link API는 이름 세그먼트에 콤마(%2C 포함)가
- * 들어가면 파싱이 깨져 목적지 없는 ?target=car로 폴백된다(실측 2026-06)
- * → 콤마/%는 공백 치환 후 공백 정리. 이름 없으면 좌표 라벨.
- */
-function webLabel({ lat, lng, name }: Destination): string {
-  return (name ?? `${lat.toFixed(5)} ${lng.toFixed(5)}`)
-    .replace(/[,%]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 /**
@@ -145,19 +173,34 @@ function wcongnamul(lat: number, lng: number): [number, number] {
 }
 
 /**
+ * 웹 URL용 목적지 라벨. ⚠️ 카카오 link API는 이름 세그먼트에 콤마(%2C 포함)가
+ * 들어가면 파싱이 깨져 목적지 없는 ?target=car로 폴백된다(실측 2026-06)
+ * → 콤마/%는 공백 치환 후 공백 정리. 이름 없으면 좌표 라벨.
+ */
+function webLabel({ lat, lng, name }: Destination): string {
+  return (name ?? `${lat.toFixed(5)} ${lng.toFixed(5)}`)
+    .replace(/[,%]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// 카카오 웹 이동수단 값(앱과 어휘 다름): 대중교통=traffic, 도보=walk
+const kakaoWebTarget = (mode: Mode) => (mode === "walk" ? "walk" : "traffic");
+
+/**
  * 카카오 웹 폴백. 출발지 없으면 구형 link API(검증됨).
  * 출발지 있으면 link API가 미지원이라 link/to 리다이렉트 결과 포맷
  * (?rt={sx},{sy},{ex},{ey}&rt1=&rt2=)을 WCongnamul 좌표로 직접 구성.
  */
-export function kakaoWebUrl(dest: Destination, origin: Origin = null): string {
+export function kakaoWebUrl(dest: Destination, origin: Origin, mode: Mode): string {
   if (!origin) {
+    // 출발지 없으면 구형 link/to만 유효(link/walkto는 404). 목적지만 표시 → 앱에서 모드 전환.
     return `https://map.kakao.com/link/to/${encodeURIComponent(webLabel(dest))},${dest.lat},${dest.lng}`;
   }
   const [sx, sy] = wcongnamul(origin.lat, origin.lng);
   const [ex, ey] = wcongnamul(dest.lat, dest.lng);
-  // ⚠️ 웹의 이동수단 값은 앱 스킴(by=publictransit)과 다름: traffic=대중교통
   return (
-    `https://map.kakao.com/?map_type=TYPE_MAP&target=traffic` +
+    `https://map.kakao.com/?map_type=TYPE_MAP&target=${kakaoWebTarget(mode)}` +
     `&rt=${sx},${sy},${ex},${ey}` +
     `&rt1=${encodeURIComponent(webLabel(origin))}` +
     `&rt2=${encodeURIComponent(webLabel(dest))}`
@@ -167,8 +210,7 @@ export function kakaoWebUrl(dest: Destination, origin: Origin = null): string {
 /**
  * 앱 스킴/인텐트 시도 → timeoutMs 내 화면 전환이 없으면(앱 미설치 등) 폴백 URL로 이동.
  * 앱으로 전환되면 pagehide/visibilitychange가 먼저 발생해 폴백을 취소한다.
- * iOS의 "앱에서 열기" 확인 대화상자 시간을 고려해 2.5s (짧으면 대화상자 중에
- * 폴백이 끼어들어 엉뚱한 화면이 열림 — 실측).
+ * iOS의 "앱에서 열기" 확인 대화상자 시간을 고려해 2.5s.
  */
 export function openWithFallback(
   appUrl: string,
@@ -196,27 +238,29 @@ export function openWithFallback(
 export function openNaver(
   dest: Destination,
   origin: Origin,
+  mode: Mode,
   platform: Platform,
 ): void {
   if (platform === "desktop") {
-    window.open(naverWebUrl(dest, origin), "_blank", "noopener");
+    window.open(naverWebUrl(dest, origin, mode), "_blank", "noopener");
   } else if (platform === "android") {
-    openWithFallback(naverAndroidIntentUrl(dest, origin), NAVER_ANDROID_STORE_WEB);
+    openWithFallback(naverAndroidIntentUrl(dest, origin, mode), NAVER_ANDROID_STORE_WEB);
   } else {
-    openWithFallback(naverAppUrl(dest, origin), NAVER_IOS_STORE);
+    openWithFallback(naverAppUrl(dest, origin, mode), NAVER_IOS_STORE);
   }
 }
 
 export function openKakao(
   dest: Destination,
   origin: Origin,
+  mode: Mode,
   platform: Platform,
 ): void {
   if (platform === "desktop") {
-    window.open(kakaoWebUrl(dest, origin), "_blank", "noopener");
+    window.open(kakaoWebUrl(dest, origin, mode), "_blank", "noopener");
   } else if (platform === "android") {
-    openWithFallback(kakaoAndroidIntentUrl(dest, origin), kakaoWebUrl(dest, origin));
+    openWithFallback(kakaoAndroidIntentUrl(dest, origin, mode), kakaoWebUrl(dest, origin, mode));
   } else {
-    openWithFallback(kakaoAppUrl(dest, origin), kakaoWebUrl(dest, origin));
+    openWithFallback(kakaoAppUrl(dest, origin, mode), kakaoWebUrl(dest, origin, mode));
   }
 }

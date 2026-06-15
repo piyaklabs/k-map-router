@@ -57,11 +57,19 @@ URL과 HTML 바디를 합친 텍스트에 아래 순서로 적용. 먼저 매칭
 
 ## 6. 딥링크 스펙 (공식 문서 검증)
 
+### 이동수단(mode): walk | transit — 스마트 기본 + 토글
+- **구글맵은 도보 길찾기에 공유 버튼을 안 띄운다** → 사용자가 억지로 대중교통으로 바꿔 공유함.
+  즉 링크의 "대중교통"은 진짜 의도가 아닐 때가 많음 → 우리가 거리로 보정한다.
+- **기본값**(`defaultMode`): 출발지 있고 거리 ≤ **1.2km**(`WALK_THRESHOLD_KM`, Haversine) → **walk**, 아니면 transit.
+  출발지 없으면(내 위치) 거리 모름 → transit. 결과 화면 **Walk/Transit 토글**로 1탭 전환.
+- 앱별 모드 어휘 **다름**: 네이버 `route/walk`↔`route/public`, 카카오 앱 `by=foot`↔`by=publictransit`,
+  네이버 웹 경로 끝 `/walk`↔`/transit`, 카카오 웹 `target=walk`↔`target=traffic`.
+
 ### 네이버 — primary
-- 앱 스킴: `nmap://route/public?dlat={lat}&dlng={lng}&dname={enc}&appname={APPNAME}`
+- 앱 스킴: `nmap://route/public?dlat={lat}&dlng={lng}&dname={enc}&appname={APPNAME}` (도보=`route/walk`, 자전거=`route/bicycle`)
   - `appname` **필수** (없으면 동작 보장 안 됨). 값: 배포 도메인 또는 번들ID.
   - `dname` **optional → 이름 없으면 생략**. 생략 시 네이버가 실제 주소를 표시.
-  - `slat/slng/sname` 생략 시 현재 위치를 출발지로 사용.
+  - `slat/slng/sname` 생략 시 현재 위치를 출발지로 사용. 있으면 A→B 출발지 지정.
 - 미설치 폴백: Android `market://details?id=com.nhn.android.nmap` /
   iOS `itms-apps://itunes.apple.com/app/id311867728`
 
@@ -71,6 +79,7 @@ URL과 HTML 바디를 합친 텍스트에 아래 순서로 적용. 먼저 매칭
     (2025년에도 재보고). 그래서 네이버를 primary로 둔다.
   - `sp={lat},{lng}` 생략 가능. 이동수단: car|publictransit|foot|bicycle.
 - 웹 폴백: `https://map.kakao.com/link/to/{enc},{lat},{lng}` (구형 link API — 동작 수동확인)
+  - ⚠️ **`link/walkto`는 없음(404).** 출발지 없는 도보도 그냥 `link/to` 사용(목적지만 표시, 앱서 모드 전환).
   - ⚠️ **이름 세그먼트에 콤마(`,`/`%2C`) 금지** — 들어가면 파싱 깨져 목적지 없는
     `?target=car`로 폴백(실측 2026-06). 이름 없을 때 `"lat,lng"`를 이름으로 넣으면 안 됨
     → 콤마를 공백 치환한 라벨 사용.

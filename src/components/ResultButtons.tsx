@@ -1,5 +1,9 @@
+import { useState } from "react";
 import {
   type Destination,
+  type Mode,
+  defaultMode,
+  haversineKm,
   openKakao,
   openNaver,
 } from "../lib/deeplink";
@@ -12,12 +16,15 @@ interface Props {
 }
 
 /**
- * 목적지 카드 + 네이버(primary)/카카오(secondary) 실행 버튼 (CLAUDE.md §6).
- * A→B 링크면 출발지를 표시하고, ✕로 제거해 "내 위치 출발"로 전환할 수 있다.
+ * 목적지 카드 + 이동수단 토글 + 네이버(primary)/카카오(secondary) 실행 버튼.
+ * 이동수단: 출발지가 있고 가까우면(≤1.2km) 도보가 기본, 아니면 대중교통. 토글로 1탭 전환.
  */
 export default function ResultButtons({ dest, origin, onRemoveOrigin }: Props) {
   const platform = detectPlatform();
   const isMobile = platform !== "desktop";
+  const [mode, setMode] = useState<Mode>(() => defaultMode(dest, origin));
+
+  const km = origin ? haversineKm(origin, dest) : null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -30,6 +37,9 @@ export default function ResultButtons({ dest, origin, onRemoveOrigin }: Props) {
               </span>
               {origin.name ??
                 `${origin.lat.toFixed(5)}, ${origin.lng.toFixed(5)}`}
+              {km !== null && (
+                <span className="ml-1 text-stone-400">· {km.toFixed(1)} km</span>
+              )}
             </p>
             <button
               type="button"
@@ -60,9 +70,37 @@ export default function ResultButtons({ dest, origin, onRemoveOrigin }: Props) {
         </p>
       </div>
 
+      {/* 이동수단 토글 */}
+      <div
+        role="group"
+        aria-label="Travel mode"
+        className="flex gap-1 rounded-xl border border-stone-200 bg-stone-100 p-1"
+      >
+        {(
+          [
+            { key: "walk", label: "🚶 Walk" },
+            { key: "transit", label: "🚌 Transit" },
+          ] as { key: Mode; label: string }[]
+        ).map((m) => (
+          <button
+            key={m.key}
+            type="button"
+            onClick={() => setMode(m.key)}
+            aria-pressed={mode === m.key}
+            className={`flex-1 rounded-lg py-2 text-sm font-medium transition ${
+              mode === m.key
+                ? "bg-white text-stone-900 shadow-sm"
+                : "text-stone-500 hover:text-stone-700"
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
       <button
         type="button"
-        onClick={() => openNaver(dest, origin, platform)}
+        onClick={() => openNaver(dest, origin, mode, platform)}
         className="w-full rounded-xl bg-naver py-4 font-semibold text-white shadow-lg shadow-naver/25 transition active:scale-[0.98] active:bg-naver-deep"
       >
         Open in NAVER Map →
@@ -70,7 +108,7 @@ export default function ResultButtons({ dest, origin, onRemoveOrigin }: Props) {
 
       <button
         type="button"
-        onClick={() => openKakao(dest, origin, platform)}
+        onClick={() => openKakao(dest, origin, mode, platform)}
         className="w-full rounded-xl bg-kakao py-3.5 font-semibold text-stone-900 transition active:scale-[0.98] active:bg-kakao-deep"
       >
         Open in KakaoMap

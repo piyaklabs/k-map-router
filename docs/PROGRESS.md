@@ -131,6 +131,16 @@
   readText 재시도는 무의미했음. → `clipboard.read()`로 교체: text/uri-list → text/plain →
   text/html(href 추출) 순으로 읽기. read() 미지원 브라우저만 readText 폴백.
 
+### 7차 — 도보 모드 + paste 재수정 (2026-06-15)
+사용자 홍보영상 준비 중 발견: 구글맵의 진짜 불편함은 **도보 길찾기**(구글이 도보엔 공유 버튼조차 안 줌).
+- **paste 재오류 수정**: 지난 4s 타임아웃 race가 iOS 말풍선 탭을 기다리다 실패로 떨어뜨림 → race 제거,
+  타입별 getType try/catch + readText 폴백. (커밋 687570d)
+- **이동수단 walk/transit 도입**(사용자 승인): 거리 자동 판단(출발지 있고 ≤1.2km → 도보, 아니면 대중교통)
+  + 결과 화면 Walk/Transit 토글. 네이버 `route/walk`·카카오 `by=foot`·네이버웹 `/walk`·카카오웹 `target=walk`.
+  카카오 `link/walkto`는 404라 출발지 없을 땐 `link/to` 사용. (배포 c95be803)
+- ⚠️ 미검증(사용자 실기기): 도보 모드가 네이버/카카오 앱·웹에서 실제 도보 경로로 열리는지,
+  특히 카카오 웹 `target=walk` 유효성(200은 확인, 모드 선택은 시각 확인 필요).
+
 ### 6차 테스트 = 1.0 판정 (2026-06-11)
 ✅ **사용자 확인: 전부 정상** — iOS Paste(clipboard.read 방식), 카카오 웹 대중교통 모드 선택 포함.
 사용자 판단: "1.0 버전으로 봐도 문제없을 정도의 MVP".
