@@ -143,6 +143,34 @@ function extractOrigin(text) {
   return null;
 }
 
+/** 구글맵 링크 이동수단 추출 (Worker resolve.ts와 동일 로직 유지). */
+function extractTravelMode(text) {
+  const tm = text.match(/[?&]travelmode=(driving|walking|transit|bicycling)/i);
+  if (tm) {
+    const v = tm[1].toLowerCase();
+    if (v === "driving") return "car";
+    if (v === "walking") return "walk";
+    if (v === "transit") return "transit";
+    return null;
+  }
+  const df = text.match(/[?&]dirflg=([a-z])/i);
+  if (df) {
+    const v = df[1].toLowerCase();
+    if (v === "d") return "car";
+    if (v === "w") return "walk";
+    if (v === "r") return "transit";
+    return null;
+  }
+  const e3 = text.match(/!3e([0-3])/);
+  if (e3) {
+    if (e3[1] === "0") return "car";
+    if (e3[1] === "2") return "walk";
+    if (e3[1] === "3") return "transit";
+    return null;
+  }
+  return null;
+}
+
 // 좌표 문자열("37.5,127.0")은 이름이 아님 → 이름 후보에서 제외
 const COORD_LIKE = /^-?\d{1,3}\.\d+\s*,?\s*-?\d{1,3}\.\d+$/;
 
@@ -250,7 +278,11 @@ function selfTest() {
     { t: "https://www.google.com/maps/place/Some+Cafe/data=just-an-address-no-coords", exp: null },
     // 모바일 길찾기 공유(g_st=ic): 좌표가 geocode= base64 protobuf에만 있음.
     // 실링크(경복궁) 실측값. 두 엔트리(출발;도착) 중 마지막=목적지.
-    { t: "https://www.google.com/maps?geocode=FWoPPQId4W-RByl1kF5PmKN8NTEjt2zW3vqoGw%3D%3D;FWFrPQIdEYSRBymh3u1Kx6J8NTH2FccsU0Ywiw%3D%3D&daddr=Gyeongbokgung+Palace,+161+Sajik-ro&saddr=Seoul+Station&dirflg=r", exp: [37.579617, 126.977041], expOrigin: [37.556074, 126.971873] },
+    { t: "https://www.google.com/maps?geocode=FWoPPQId4W-RByl1kF5PmKN8NTEjt2zW3vqoGw%3D%3D;FWFrPQIdEYSRBymh3u1Kx6J8NTH2FccsU0Ywiw%3D%3D&daddr=Gyeongbokgung+Palace,+161+Sajik-ro&saddr=Seoul+Station&dirflg=r", exp: [37.579617, 126.977041], expOrigin: [37.556074, 126.971873], expMode: "transit" },
+    // 운전 길찾기 링크: 이동수단 감지(travelmode=driving → car), 좌표는 @ 뷰포트.
+    { t: "https://www.google.com/maps/dir/?api=1&destination=37.5796,126.9770&travelmode=driving", exp: [37.5796, 126.977], expMode: "car" },
+    // data 블롭의 !3e2 = 도보
+    { t: "https://www.google.com/maps/dir/A/B/@37.5,127.0,12z/data=!4m2!1d126.9770!2d37.5796!3e2", exp: [37.5796, 126.977], expMode: "walk" },
   ];
   let pass = 0;
   console.log("=== OFFLINE SELF-TEST (추출 로직) ===");
@@ -265,10 +297,16 @@ function selfTest() {
       ok = o && Math.abs(o.lat - c.expOrigin[0]) < 1e-6 && Math.abs(o.lng - c.expOrigin[1]) < 1e-6;
       if (!ok) console.log(`  └ origin FAIL: ${o ? `${o.lat},${o.lng}` : "null"} (expected ${c.expOrigin})`);
     }
+    // 이동수단 감지 검증
+    if (ok && c.expMode) {
+      const md = extractTravelMode(c.t);
+      ok = md === c.expMode;
+      if (!ok) console.log(`  └ mode FAIL: ${md} (expected ${c.expMode})`);
+    }
     if (ok) pass++;
     console.log(
       `${ok ? "PASS" : "FAIL"}  [${r ? r.method : "none"}]  ` +
-      `${r ? `${r.lat},${r.lng}` : "null"}${c.expOrigin ? " (+origin)" : ""}  <-  ${c.t.slice(0, 60)}`,
+      `${r ? `${r.lat},${r.lng}` : "null"}${c.expOrigin ? " (+origin)" : ""}${c.expMode ? ` (mode:${c.expMode})` : ""}  <-  ${c.t.slice(0, 60)}`,
     );
   }
   console.log(`\n${pass}/${cases.length} passed\n`);

@@ -2,12 +2,17 @@ import { useState } from "react";
 import AdSlot from "./components/AdSlot";
 import LinkInput from "./components/LinkInput";
 import ResultButtons from "./components/ResultButtons";
-import type { Destination } from "./lib/deeplink";
+import type { Destination, Mode } from "./lib/deeplink";
 
 type State =
   | { phase: "idle" }
   | { phase: "resolving" }
-  | { phase: "success"; dest: Destination; origin: Destination | null }
+  | {
+      phase: "success";
+      dest: Destination;
+      origin: Destination | null;
+      linkMode: Mode | null;
+    }
   | { phase: "error"; message: string };
 
 const GENERIC_ERROR =
@@ -32,6 +37,7 @@ export default function App() {
         lng?: number;
         name?: string | null;
         origin?: Destination | null;
+        mode?: Mode | null;
         message?: string;
       } = await res.json();
 
@@ -40,6 +46,7 @@ export default function App() {
           phase: "success",
           dest: { lat: data.lat, lng: data.lng, name: data.name ?? null },
           origin: data.origin ?? null,
+          linkMode: data.mode ?? null,
         });
       } else {
         setState({ phase: "error", message: data.message || GENERIC_ERROR });
@@ -74,6 +81,7 @@ export default function App() {
             <ResultButtons
               dest={state.dest}
               origin={state.origin}
+              linkMode={state.linkMode}
               onRemoveOrigin={() =>
                 setState((s) =>
                   s.phase === "success" ? { ...s, origin: null } : s,

@@ -131,6 +131,13 @@
   readText 재시도는 무의미했음. → `clipboard.read()`로 교체: text/uri-list → text/plain →
   text/html(href 추출) 순으로 읽기. read() 미지원 브라우저만 readText 폴백.
 
+### 8차 — Drive 모드 + 링크 이동수단 감지 (2026-06-18, 버전 e441c846)
+로드트립/운전 수요 + "구글맵 계획 그대로 점프" 각도 강화.
+- `Mode`에 **car** 추가: 네이버 `route/car`, 카카오 앱 `by=car`, 네이버웹 `/car`, 카카오웹 `target=car`. 토글 3개(Walk/Transit/Drive).
+- **링크 이동수단 자동감지**(`extractTravelMode`): `travelmode=`/`dirflg=`/`!3e` → car|walk|transit. API `mode` 필드 추가. `defaultMode`가 linkMode 우선 → 구글맵에서 운전 경로 공유하면 우리도 Drive로 열림.
+- selftest 11/11(운전 travelmode=driving, 도보 !3e2 케이스 추가). 배포 검증: 운전 링크 `mode:car`, g_st 링크 `mode:transit` 확인.
+- Reddit 로드트립 2단계 전략용: 1번 댓글(겸손) 후 이 기능으로 후속 댓글("drive 모드 추가했어요").
+
 ### 7차 — 도보 모드 + paste 재수정 (2026-06-15)
 사용자 홍보영상 준비 중 발견: 구글맵의 진짜 불편함은 **도보 길찾기**(구글이 도보엔 공유 버튼조차 안 줌).
 - **paste 재오류 수정**: ① 4s 타임아웃 race 제거(커밋 687570d). ② 진짜 원인은 **버튼이 `read()`를 먼저

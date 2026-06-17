@@ -133,6 +133,42 @@ export function extractOrigin(text: string): { lat: number; lng: number } | null
   return null;
 }
 
+export type TravelMode = "walk" | "transit" | "car";
+
+/**
+ * 구글맵 링크가 담은 이동수단 추출 ("구글맵 계획 그대로 점프"용).
+ * - `travelmode=driving|walking|transit|bicycling` (Maps URLs API)
+ * - `dirflg=d|w|r|b` (d=운전, w=도보, r=대중교통, b=자전거)
+ * - `!3e0|1|2|3` (0=운전, 1=자전거, 2=도보, 3=대중교통)
+ * 자전거는 미지원 모드라 무시(거리 기본값으로). 못 찾으면 null.
+ */
+export function extractTravelMode(text: string): TravelMode | null {
+  const tm = text.match(/[?&]travelmode=(driving|walking|transit|bicycling)/i);
+  if (tm) {
+    const v = tm[1].toLowerCase();
+    if (v === "driving") return "car";
+    if (v === "walking") return "walk";
+    if (v === "transit") return "transit";
+    return null; // bicycling
+  }
+  const df = text.match(/[?&]dirflg=([a-z])/i);
+  if (df) {
+    const v = df[1].toLowerCase();
+    if (v === "d") return "car";
+    if (v === "w") return "walk";
+    if (v === "r") return "transit";
+    return null; // b
+  }
+  const e3 = text.match(/!3e([0-3])/);
+  if (e3) {
+    if (e3[1] === "0") return "car";
+    if (e3[1] === "2") return "walk";
+    if (e3[1] === "3") return "transit";
+    return null; // 1 = 자전거
+  }
+  return null;
+}
+
 // 좌표 문자열("37.5,127.0")은 이름이 아님 → 이름 후보에서 제외
 const COORD_LIKE = /^-?\d{1,3}\.\d+\s*,?\s*-?\d{1,3}\.\d+$/;
 
@@ -208,6 +244,7 @@ export type ResolveResult =
       name: string | null;
       method: string;
       origin: OriginOut | null;
+      mode: TravelMode | null;
     }
   | { success: false; reason: "resolve_failed" | "no_coords"; message: string };
 
@@ -281,6 +318,7 @@ export async function resolve(url: string): Promise<ResolveResult> {
     name,
     method: coords.method,
     origin,
+    mode: extractTravelMode(haystack),
   };
 }
 

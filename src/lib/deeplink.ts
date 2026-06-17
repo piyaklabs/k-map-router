@@ -5,7 +5,8 @@
  *
  * 출발지(origin): A→B 길찾기 공유 링크에서만 존재. 없으면 파라미터 생략
  * → 앱이 현재 위치를 출발지로 사용.
- * 이동수단(mode): walk | transit. 가까우면(≤1.2km) 도보가 기본, 멀면 대중교통.
+ * 이동수단(mode): walk | transit | car. 구글맵 링크가 이동수단을 담고 있으면 그걸 따르고,
+ * 없으면 가까울 때(≤1.2km) 도보, 아니면 대중교통.
  */
 import type { Platform } from "./ua";
 
@@ -15,7 +16,7 @@ export interface Destination {
   name: string | null;
 }
 
-export type Mode = "walk" | "transit";
+export type Mode = "walk" | "transit" | "car";
 
 /** 도보 기본 거리 임계값(km). 이하면 walk, 초과면 transit. */
 export const WALK_THRESHOLD_KM = 1.2;
@@ -40,8 +41,16 @@ export function haversineKm(a: Destination, b: Destination): number {
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
-/** 출발지가 있고 거리가 임계값 이하면 도보, 아니면 대중교통. */
-export function defaultMode(dest: Destination, origin: Origin): Mode {
+/**
+ * 기본 이동수단: 구글맵 링크가 이동수단을 명시했으면(linkMode) 그걸 존중("계획 그대로 점프").
+ * 없으면 출발지가 있고 가까울 때(≤1.2km) 도보, 아니면 대중교통.
+ */
+export function defaultMode(
+  dest: Destination,
+  origin: Origin,
+  linkMode?: Mode | null,
+): Mode {
+  if (linkMode) return linkMode;
   if (origin && haversineKm(origin, dest) <= WALK_THRESHOLD_KM) return "walk";
   return "transit";
 }
@@ -60,8 +69,9 @@ function naverQuery(dest: Destination, origin: Origin): string {
   return `${q}&appname=${encodeURIComponent(APPNAME)}`;
 }
 
-// 네이버 route 액션패스: 도보=route/walk, 대중교통=route/public
-const naverPath = (mode: Mode) => (mode === "walk" ? "route/walk" : "route/public");
+// 네이버 route 액션패스: 도보=route/walk, 자동차=route/car, 대중교통=route/public
+const naverPath = (mode: Mode) =>
+  mode === "walk" ? "route/walk" : mode === "car" ? "route/car" : "route/public";
 
 /** iOS용 nmap 스킴. (Android는 intent:// 사용 — 파라미터 전달 보장 + 스토어 폴백 내장) */
 export function naverAppUrl(dest: Destination, origin: Origin, mode: Mode): string {
@@ -108,8 +118,9 @@ export function naverWebUrl(dest: Destination, origin: Origin, mode: Mode): stri
 }
 
 // ── 카카오 ──────────────────────────────────────────────────────────────
-// 앱 스킴 이동수단: 도보=foot, 대중교통=publictransit
-const kakaoBy = (mode: Mode) => (mode === "walk" ? "foot" : "publictransit");
+// 앱 스킴 이동수단: 도보=foot, 자동차=car, 대중교통=publictransit
+const kakaoBy = (mode: Mode) =>
+  mode === "walk" ? "foot" : mode === "car" ? "car" : "publictransit";
 
 /** iOS용 kakaomap 스킴. sp 생략 시 현재 위치 출발. by 무시 버그 주의(보조로만). */
 export function kakaoAppUrl(dest: Destination, origin: Origin, mode: Mode): string {
@@ -184,8 +195,9 @@ function webLabel({ lat, lng, name }: Destination): string {
     .trim();
 }
 
-// 카카오 웹 이동수단 값(앱과 어휘 다름): 대중교통=traffic, 도보=walk
-const kakaoWebTarget = (mode: Mode) => (mode === "walk" ? "walk" : "traffic");
+// 카카오 웹 이동수단 값(앱과 어휘 다름): 대중교통=traffic, 도보=walk, 자동차=car
+const kakaoWebTarget = (mode: Mode) =>
+  mode === "walk" ? "walk" : mode === "car" ? "car" : "traffic";
 
 /**
  * 카카오 웹 폴백. 출발지 없으면 구형 link API(검증됨).

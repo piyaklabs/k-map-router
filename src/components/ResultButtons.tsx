@@ -12,17 +12,26 @@ import { detectPlatform } from "../lib/ua";
 interface Props {
   dest: Destination;
   origin: Destination | null;
+  linkMode: Mode | null;
   onRemoveOrigin: () => void;
 }
 
 /**
  * 목적지 카드 + 이동수단 토글 + 네이버(primary)/카카오(secondary) 실행 버튼.
- * 이동수단: 출발지가 있고 가까우면(≤1.2km) 도보가 기본, 아니면 대중교통. 토글로 1탭 전환.
+ * 이동수단 기본값: 구글맵 링크가 담은 모드(linkMode)를 우선, 없으면 가까울 때 도보/아니면 대중교통.
+ * Walk/Transit/Drive 토글로 1탭 전환.
  */
-export default function ResultButtons({ dest, origin, onRemoveOrigin }: Props) {
+export default function ResultButtons({
+  dest,
+  origin,
+  linkMode,
+  onRemoveOrigin,
+}: Props) {
   const platform = detectPlatform();
   const isMobile = platform !== "desktop";
-  const [mode, setMode] = useState<Mode>(() => defaultMode(dest, origin));
+  const [mode, setMode] = useState<Mode>(() =>
+    defaultMode(dest, origin, linkMode),
+  );
 
   const km = origin ? haversineKm(origin, dest) : null;
 
@@ -80,6 +89,7 @@ export default function ResultButtons({ dest, origin, onRemoveOrigin }: Props) {
           [
             { key: "walk", label: "🚶 Walk" },
             { key: "transit", label: "🚌 Transit" },
+            { key: "car", label: "🚗 Drive" },
           ] as { key: Mode; label: string }[]
         ).map((m) => (
           <button

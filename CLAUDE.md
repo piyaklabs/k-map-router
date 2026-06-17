@@ -57,13 +57,15 @@ URL과 HTML 바디를 합친 텍스트에 아래 순서로 적용. 먼저 매칭
 
 ## 6. 딥링크 스펙 (공식 문서 검증)
 
-### 이동수단(mode): walk | transit — 스마트 기본 + 토글
+### 이동수단(mode): walk | transit | car — 링크 감지 + 스마트 기본 + 토글
 - **구글맵은 도보 길찾기에 공유 버튼을 안 띄운다** → 사용자가 억지로 대중교통으로 바꿔 공유함.
   즉 링크의 "대중교통"은 진짜 의도가 아닐 때가 많음 → 우리가 거리로 보정한다.
-- **기본값**(`defaultMode`): 출발지 있고 거리 ≤ **1.2km**(`WALK_THRESHOLD_KM`, Haversine) → **walk**, 아니면 transit.
-  출발지 없으면(내 위치) 거리 모름 → transit. 결과 화면 **Walk/Transit 토글**로 1탭 전환.
-- 앱별 모드 어휘 **다름**: 네이버 `route/walk`↔`route/public`, 카카오 앱 `by=foot`↔`by=publictransit`,
-  네이버 웹 경로 끝 `/walk`↔`/transit`, 카카오 웹 `target=walk`↔`target=traffic`.
+- **링크 이동수단 감지**(`extractTravelMode`, resolve.ts): `travelmode=driving|walking|transit`,
+  `dirflg=d|w|r`, `!3e0|2|3` → car|walk|transit. 자전거(b/`!3e1`)는 미지원 → null. API `mode` 필드로 반환.
+- **기본값**(`defaultMode(dest, origin, linkMode)`): 링크가 모드를 담았으면 **그걸 존중**("계획 그대로 점프").
+  없으면 출발지 있고 거리 ≤ **1.2km**(`WALK_THRESHOLD_KM`) → walk, 아니면 transit. 결과 화면 **Walk/Transit/Drive 토글**로 1탭 전환.
+- 앱별 모드 어휘 **다름**: 네이버 `route/walk·route/car·route/public`, 카카오 앱 `by=foot·car·publictransit`,
+  네이버 웹 경로 끝 `/walk·/car·/transit`, 카카오 웹 `target=walk·car·traffic`.
 
 ### 네이버 — primary
 - 앱 스킴: `nmap://route/public?dlat={lat}&dlng={lng}&dname={enc}&appname={APPNAME}` (도보=`route/walk`, 자전거=`route/bicycle`)
@@ -102,7 +104,9 @@ URL과 HTML 바디를 합친 텍스트에 아래 순서로 적용. 먼저 매칭
 ## 7. API 계약 — `POST /api/resolve`
 요청: `{ "url": string }`
 성공: `{ "success": true, "lat": number, "lng": number, "name": string|null, "method": string,
-        "origin": { "lat", "lng", "name": string|null } | null }`
+        "origin": { "lat", "lng", "name": string|null } | null,
+        "mode": "walk"|"transit"|"car"|null }`
+- `mode`: 구글맵 링크가 담은 이동수단(없으면 null → 프론트가 거리로 기본값 결정).
 - `origin`: A→B 길찾기 공유 링크일 때만 (좌표 쌍 ≥2 → 첫 쌍/첫 geocode 엔트리 = 출발지,
   이름은 `/dir/` 첫 세그먼트 또는 `saddr=`). 한국 밖이거나 목적지와 동일하면 null.
   null이면 프론트가 출발지 파라미터 생략 → 앱이 현재 위치 사용.
